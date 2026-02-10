@@ -1,8 +1,9 @@
+using DatasetTool;
 using System;
 using System.Globalization;
 using Xunit;
 
-namespace TestUnit_DatasetTool.JsonToBinaryConverterTest
+namespace DatasetToolTest.JsonToBinaryConverterTest
 {
 
     public class ParseIsoToEpochNsTests
@@ -12,7 +13,7 @@ namespace TestUnit_DatasetTool.JsonToBinaryConverterTest
         {
             var iso = "2010-06-07T15:17:00Z";
 
-            long ns = ParseIsoToEpochNs(iso);
+            long ns = JsonToBinaryConverter.ParseIsoToEpochNs(iso);
 
             var dto = DateTimeOffset.Parse(
                 iso,
@@ -29,7 +30,7 @@ namespace TestUnit_DatasetTool.JsonToBinaryConverterTest
         {
             var iso = "2022-06-10T12:30:00.123Z";
 
-            long ns = ParseIsoToEpochNs(iso);
+            long ns = JsonToBinaryConverter.ParseIsoToEpochNs(iso);
 
             Assert.EndsWith("123000000", ns.ToString());
         }
@@ -39,7 +40,7 @@ namespace TestUnit_DatasetTool.JsonToBinaryConverterTest
         {
             var iso = "2022-06-10T12:30:00.123456Z";
 
-            long ns = ParseIsoToEpochNs(iso);
+            long ns = JsonToBinaryConverter.ParseIsoToEpochNs(iso);
 
             Assert.EndsWith("123456000", ns.ToString());
         }
@@ -49,7 +50,7 @@ namespace TestUnit_DatasetTool.JsonToBinaryConverterTest
         {
             var iso = "2022-06-10T12:30:00.123456789Z";
 
-            long ns = ParseIsoToEpochNs(iso);
+            long ns = JsonToBinaryConverter.ParseIsoToEpochNs(iso);
 
             Assert.EndsWith("123456789", ns.ToString());
         }
@@ -59,7 +60,7 @@ namespace TestUnit_DatasetTool.JsonToBinaryConverterTest
         {
             var iso = "2022-06-10T12:30:00.123456789999Z";
 
-            long ns = ParseIsoToEpochNs(iso);
+            long ns = JsonToBinaryConverter.ParseIsoToEpochNs(iso);
 
             Assert.EndsWith("123456789", ns.ToString());
         }
@@ -69,43 +70,11 @@ namespace TestUnit_DatasetTool.JsonToBinaryConverterTest
         {
             var iso = "2022-06-10T12:30:00.1Z";
 
-            long ns = ParseIsoToEpochNs(iso);
+            long ns = JsonToBinaryConverter.ParseIsoToEpochNs(iso);
 
             Assert.EndsWith("100000000", ns.ToString());
         }
 
-        private static long ParseIsoToEpochNs(string isoZ)
-        {
-            int dot = isoZ.IndexOf('.');
-            if (dot < 0)
-            {
-                var dto = DateTimeOffset.Parse(
-                    isoZ,
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal);
-
-                return dto.ToUnixTimeMilliseconds() * 1_000_000L;
-            }
-
-            int z = isoZ.IndexOf('Z', dot);
-            if (z < 0) z = isoZ.Length;
-
-            string basePart = isoZ[..dot] + "Z";
-            string fracPart = isoZ[(dot + 1)..z];
-
-            var dto2 = DateTimeOffset.Parse(
-                basePart,
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal);
-
-            long baseNs = dto2.ToUnixTimeMilliseconds() * 1_000_000L;
-
-            if (fracPart.Length > 9) fracPart = fracPart[..9];
-            fracPart = fracPart.PadRight(9, '0');
-
-            long extraNs = long.Parse(fracPart, CultureInfo.InvariantCulture);
-            return baseNs + extraNs;
-        }
     }
 
 
