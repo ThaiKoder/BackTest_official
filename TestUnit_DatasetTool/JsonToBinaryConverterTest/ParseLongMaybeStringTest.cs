@@ -1,23 +1,16 @@
-﻿using System;
+﻿using DatasetTool;
+using System;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Xunit;
 
-namespace TestUnit_DatasetTool.JsonToBinaryConverterTest;
+namespace DatasetToolTest.JsonToBinaryConverterTest;
 
 public class ParseLongMaybeStringTests
 {
     private static long Call(ref Utf8JsonReader reader)
-    {
-        // Copie locale si la méthode est private
-        return reader.TokenType switch
-        {
-            JsonTokenType.String => long.Parse(reader.GetString()!, CultureInfo.InvariantCulture),
-            JsonTokenType.Number => reader.GetInt64(),
-            _ => throw new FormatException($"Nombre invalide: {reader.TokenType}")
-        };
-    }
+        => JsonToBinaryConverter.ParseLongMaybeString(ref reader);
 
     [Fact]
     public void Parse_Number_Token()

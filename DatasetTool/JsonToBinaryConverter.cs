@@ -107,7 +107,7 @@ namespace DatasetTool
             return new Candle1m(tsNs, o, h, l, c, v);
         }
 
-        private static long ParseLongMaybeString(ref Utf8JsonReader reader)
+        internal static long ParseLongMaybeString(ref Utf8JsonReader reader)
         {
             return reader.TokenType switch
             {
@@ -118,7 +118,7 @@ namespace DatasetTool
         }
 
         // "2010-06-06T22:00:00.000000000Z" -> epoch ns
-        private static long ParseIsoToEpochNs(string isoZ)
+        internal static long ParseIsoToEpochNs(string isoZ)
         {
             int dot = isoZ.IndexOf('.');
             if (dot < 0)
