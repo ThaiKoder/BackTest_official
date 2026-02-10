@@ -35,6 +35,7 @@ namespace DatasetTool
         }
     }
 
+
     public static class JsonToBinaryConverter
     {
 
@@ -106,6 +107,126 @@ namespace DatasetTool
 
             return new Candle1m(tsNs, o, h, l, c, v);
         }
+
+        public static async Task ConvertJsonAsync(string jsonPath, string binPath, CancellationToken ct = default)
+        {
+            await using var fs = new FileStream(
+                jsonPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 1 << 20,
+                useAsync: true);
+
+            await using var outFs = new FileStream(
+                binPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 1 << 20,
+                useAsync: true);
+
+            using var bw = new BinaryWriter(outFs, Encoding.UTF8, leaveOpen: true);
+
+            // Buffer de lecture
+            byte[] buffer = new byte[1 << 20];
+
+            // "carry" stocke le bout de ligne coupée entre deux ReadAsync
+            byte[] carry = new byte[1 << 20];
+            int carryLen = 0;
+
+            int bytesRead;
+            while ((bytesRead = await fs.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                int start = 0;
+
+                for (int i = 0; i < bytesRead; i++)
+                {
+                    if (buffer[i] == (byte)'\n')
+                    {
+                        int segLen = i - start;
+                        int totalLen = carryLen + segLen;
+
+                        if (totalLen > 0)
+                        {
+                            // Construire la ligne complète (carry + segment)
+                            byte[] line = new byte[totalLen];
+                            if (carryLen > 0) Buffer.BlockCopy(carry, 0, line, 0, carryLen);
+                            if (segLen > 0) Buffer.BlockCopy(buffer, start, line, carryLen, segLen);
+
+                            // reset carry
+                            carryLen = 0;
+
+                            // enlever '\r' si CRLF
+                            int len = totalLen;
+                            if (len > 0 && line[len - 1] == (byte)'\r') len--;
+
+                            if (len > 0)
+                            {
+                                var candle = ReadCandleFromJsonLine(line.AsSpan(0, len));
+                                bw.Write(candle.TsNs);
+                                bw.Write(candle.O);
+                                bw.Write(candle.H);
+                                bw.Write(candle.L);
+                                bw.Write(candle.C);
+                                bw.Write(candle.V);
+                            }
+                        }
+
+                        start = i + 1;
+                    }
+                }
+
+                // Reste sans '\n' => va dans carry
+                int remaining = bytesRead - start;
+                if (remaining > 0)
+                {
+                    EnsureCapacity(ref carry, carryLen + remaining);
+                    Buffer.BlockCopy(buffer, start, carry, carryLen, remaining);
+                    carryLen += remaining;
+                }
+            }
+
+            // Dernière ligne si pas de \n final
+            if (carryLen > 0)
+            {
+                var candle = ReadCandleFromJsonLine(carry.AsSpan(0, carryLen));
+                bw.Write(candle.TsNs);
+                bw.Write(candle.O);
+                bw.Write(candle.H);
+                bw.Write(candle.L);
+                bw.Write(candle.C);
+                bw.Write(candle.V);
+            }
+
+            bw.Flush();
+        }
+
+        private static void EnsureCapacity(ref byte[] arr, int needed)
+        {
+            if (arr.Length >= needed) return;
+            int newSize = arr.Length;
+            while (newSize < needed) newSize *= 2;
+            Array.Resize(ref arr, newSize);
+        }
+
+        // Ici on utilise Utf8JsonReader "en entier" sur UNE ligne JSON.
+        private static Candle1m ReadCandleFromJsonLine(ReadOnlySpan<byte> jsonLineUtf8)
+        {
+            var readerState = new JsonReaderState();
+            var reader = new Utf8JsonReader(jsonLineUtf8, isFinalBlock: true, readerState);
+
+            // Avancer jusqu'au StartObject de la ligne
+            while (reader.Read() && reader.TokenType != JsonTokenType.StartObject) { }
+
+            if (reader.TokenType != JsonTokenType.StartObject)
+                throw new FormatException("Ligne JSON invalide : pas d'objet.");
+
+            return ReadCandle(ref reader);
+        }
+
 
         internal static long ParseLongMaybeString(ref Utf8JsonReader reader)
         {
