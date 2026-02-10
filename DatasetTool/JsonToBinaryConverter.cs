@@ -12,6 +12,16 @@ namespace DatasetTool
 
     public static class JsonToBinaryConverter
     {
+        private static long ParseLongMaybeString(ref Utf8JsonReader reader)
+        {
+            return reader.TokenType switch
+            {
+                JsonTokenType.String => long.Parse(reader.GetString()!, CultureInfo.InvariantCulture),
+                JsonTokenType.Number => reader.GetInt64(),
+                _ => throw new FormatException($"Nombre invalide: {reader.TokenType}")
+            };
+        }
+
         // "2010-06-06T22:00:00.000000000Z" -> epoch ns
         private static long ParseIsoToEpochNs(string isoZ)
         {
