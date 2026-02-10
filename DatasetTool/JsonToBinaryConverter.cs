@@ -19,12 +19,12 @@ namespace DatasetTool
 
         public Candle1m(long tsNs, long o, long h, long l, long c, long v)
         {
-            if (tsNs <= 0) throw new JsonException("Missing required field: hd.ts_event");
-            if (o <= 0) throw new JsonException("Missing required field: open");
-            if (h <= 0) throw new JsonException("Missing required field: high");
-            if (l <= 0) throw new JsonException("Missing required field: low");
-            if (c <= 0) throw new JsonException("Missing required field: close");
-            if (v <= 0) throw new JsonException("Missing required field: volume");
+            //if (tsNs < 0) throw new JsonException("Missing required field: hd.ts_event");
+            //if (o < 0) throw new JsonException("Missing required field: open");
+            //if (h < 0) throw new JsonException("Missing required field: high");
+            //if (l <= 0) throw new JsonException("Missing required field: low");
+            //if (c <= 0) throw new JsonException("Missing required field: close");
+            //if (v <= 0) throw new JsonException("Missing required field: volume");
 
             TsNs = tsNs;
             O = o;

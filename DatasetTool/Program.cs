@@ -8,10 +8,10 @@ internal class Program
     {
         Console.WriteLine("JSON → BIN conversion started");
 
-        //await JsonToBinaryConverter.ConvertJsonAsync(
-        //    jsonPath: "data/glbx-mdp3-20100606-20100612.ohlcv-1m.json",
-        //    binPath: "data/glbx-mdp3-20100606-20100612.ohlcv-1m.bin"
-        //);
+        await JsonToBinaryConverter.ConvertJsonAsync(
+            jsonPath: "data/glbx-mdp3-20100606-20100612.ohlcv-1m.json",
+            binPath: "data/glbx-mdp3-20100606-20100612.ohlcv-1m.bin"
+        );
 
         Console.WriteLine("Done.");
     }
