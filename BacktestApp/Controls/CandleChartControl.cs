@@ -222,18 +222,32 @@ public sealed class CandleChartControl : Control
             double yO = PriceToY(o, plot);
             double yC = PriceToY(cl, plot);
 
+            // ===== CULLING STRICT =====
+            double half = bodyW / 2.0;
+
+            double bodyLeft = xCenter - half;
+            double bodyRight = xCenter + half;
+
+            double top = Math.Min(yO, yC);
+            double bot = Math.Max(yO, yC);
+
+            // Si le corps dépasse du plot → on ne dessine PAS la bougie
+            if (bodyRight <= plot.Left || bodyLeft >= plot.Right)
+                continue;
+
+            if (bot <= plot.Top || top >= plot.Bottom)
+                continue;
+
             bool up = cl >= o;
             var brush = up ? upBrush : dnBrush;
 
             ctx.DrawLine(wickPen, new Point(xCenter, yH), new Point(xCenter, yL));
 
-            double top = Math.Min(yO, yC);
-            double bot = Math.Max(yO, yC);
             double height = Math.Max(2, bot - top);
-
             var body = new Rect(xCenter - bodyW / 2, top, bodyW, height);
             ctx.FillRectangle(brush, body);
         }
+
     }
 
     // =========================
