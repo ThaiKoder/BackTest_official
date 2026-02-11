@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -168,7 +169,7 @@ internal static class Program
             // Accès rapide à toute les bougies d'un fichier
             bin.ReadAllFast((ts, o, h, l, c, v, symbol) =>
             {
-                if (localCount >= limitCandles && limitCandles != -1) return; 
+                if (localCount >= limitCandles && limitCandles != -1) return;
 
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
@@ -200,6 +201,38 @@ internal static class Program
     }
 
 
+    //static int Main()
+    //{
+    //    string inputDir = Path.Combine(AppContext.BaseDirectory, "data", "json");
+    //    string binDir = Path.Combine(inputDir, "..", "bin");
+    //    var binFiles = Directory.GetFiles(binDir, "*.bin");
+
+    //    if (binFiles.Length == 0)
+    //    {
+    //        Console.WriteLine("Aucun .bin trouvé.");
+    //        return 0;
+    //    }
+
+    //    long globalCount = 0;
+    //    var sw = Stopwatch.StartNew();
+
+    //    foreach (var binPath in binFiles)
+    //    {
+    //        using var bin = new Binary(binPath);
+
+    //        bin.ReadAllFast((ts, o, h, l, c, v, s) =>
+    //        {
+    //            globalCount++;
+    //        });
+    //    }
+
+    //    sw.Stop();
+
+    //    Console.WriteLine($"TOTAL GLOBAL: {globalCount}");
+    //    Console.WriteLine($"Temps lecture: {sw.ElapsedMilliseconds} ms");
+
+    //    return 0;
+    //}
 
 
     //static void Main()

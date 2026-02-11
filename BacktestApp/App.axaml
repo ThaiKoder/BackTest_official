@@ -3,9 +3,17 @@
              x:Class="BacktestApp.App"
              xmlns:local="using:BacktestApp"
              xmlns:dockFluent="using:Dock.Avalonia.Themes.Fluent"
+			 xmlns:dockControls="using:Dock.Avalonia.Controls"
              RequestedThemeVariant="Default">
              <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
 
+
+	<Application.Resources>
+		<SolidColorBrush x:Key="Color.Background.Unfocus" Color="#2e2e2e"/>
+		<SolidColorBrush x:Key="Color.Background.Focus" Color="#4a4a4a"/>
+		<SolidColorBrush x:Key="Color.Background" Color="#191919"/>
+	</Application.Resources>
+	
     <Application.DataTemplates>
         <local:ViewLocator/>
     </Application.DataTemplates>
@@ -13,5 +21,19 @@
     <Application.Styles>
         <FluentTheme />
 		<dockFluent:DockFluentTheme />
+		<!-- Pannel Header -->
+		<Style Selector="dockControls|ToolChromeControl /template/ Grid#PART_Grip">
+			<Setter Property="Background" Value="{DynamicResource Color.Background.Unfocus}"/>
+		</Style>
+
+		<!-- Actif Pannel Header -->
+		<Style Selector="dockControls|ToolChromeControl:active /template/ Grid#PART_Grip">
+			<Setter Property="Background" Value="{DynamicResource Color.Background.Focus}"/>
+		</Style>
+
+		<!-- Marge -->
+		<Style Selector="Window /template/ ContentPresenter#PART_ContentPresenter">
+			<Setter Property="Background" Value="{DynamicResource Color.Background.Unfocus}"/>
+		</Style>
     </Application.Styles>
 </Application>

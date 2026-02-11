@@ -8,34 +8,64 @@
         x:Class="BacktestApp.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="BacktestApp">
+        Title="BacktestApp"
+		Background="{DynamicResource Color.Background}">
 
 	<dock:DockControl InitializeLayout="True" InitializeFactory="True">
+
 		<dock:DockControl.Factory>
 			<dock:Factory />
 		</dock:DockControl.Factory>
 
 		<dock:RootDock>
 			<dock:ProportionalDock Orientation="Horizontal">
+					<!-- Timeline and tools-->
+					<dock:ToolDock Proportion="0.05" Alignment="Left">
+						<dock:Tool Id="tools" Title="tools">
+							<Border Background="{DynamicResource Color.Background}" Padding="12">
+								<TextBlock Foreground="White" Text="tools" />
+							</Border>
+						</dock:Tool>
+					</dock:ToolDock>
 
-				<!-- ✅ Panneau détachable + pin -->
-				<dock:ToolDock Proportion="0.25" Alignment="Left">
-					<dock:Tool Id="Tool1" Title="Panneau">
-						<TextBlock Margin="12" Text="Tool panel (pin / detach)" />
-					</dock:Tool>
-				</dock:ToolDock>
+					<dock:ProportionalDockSplitter />
+						<dock:ProportionalDock Orientation="Vertical">
+				
 
-				<dock:ProportionalDockSplitter />
 
-				<!-- ✅ Zone centrale -->
-				<dock:DocumentDock>
-					<dock:Document Id="Doc1" Title="Chart">
-						<TextBlock Margin="12" Text="Zone chart" />
+					<dock:Document Id="chart" Title="Chart">
+						<Border Background="{DynamicResource Color.Background}" Padding="0">
+							<Grid>
+								<!-- ChartControl Skia -->
+								<TextBlock Margin="12" Foreground="White" Text="Skia Chart" />
+							</Grid>
+						</Border>
 					</dock:Document>
-				</dock:DocumentDock>
 
+					<dock:ProportionalDockSplitter />
+
+					<!-- Replay and select date-->
+					<dock:ToolDock Proportion="0.25" Alignment="Bottom">
+						<dock:Tool Id="replay" Title="replay tools">
+							<Border Background="{DynamicResource Color.Background}" Padding="12">
+								<TextBlock Foreground="White" Text="replay tools" />
+							</Border>
+						</dock:Tool>
+					</dock:ToolDock>
+
+						<dock:ProportionalDockSplitter />
+
+					<!-- Indicator-->
+					<dock:ToolDock Proportion="0.25" Alignment="Bottom">
+						<dock:Tool Id="indicator" Title="indicator">
+							<Border Background="{DynamicResource Color.Background}" Padding="12">
+								<TextBlock Foreground="White" Text="Indicator" />
+							</Border>
+						</dock:Tool>
+					</dock:ToolDock>
+
+				</dock:ProportionalDock>
 			</dock:ProportionalDock>
 		</dock:RootDock>
 	</dock:DockControl>
-
 </Window>
