@@ -44,6 +44,11 @@ public sealed class CandleChartControl : Control
     private double _visibleMinPrice;
     private double _visibleMaxPrice;
 
+
+    private double _centerPrice;
+    private double _pricePerPixel;
+
+
     // Données test
     private readonly Candle[] _candles =
     [
@@ -68,6 +73,18 @@ public sealed class CandleChartControl : Control
         _secondsPerPixel = Clamp(_secondsPerPixel, minSecondsPerPixel, maxSecondsPerPixel);
     }
 
+    //public CandleChartControl()
+    //{
+    //    Focusable = true;
+
+    //    if (_candles.Length > 0)
+    //    {
+    //        var mid = _candles[_candles.Length / 2];
+    //        _centerTimeSec = TsNsToEpochSeconds(mid.TsNs);
+    //        _visibleMinPrice = _candles[0].L / PriceScale;
+    //        _visibleMaxPrice = _candles[0].H / PriceScale;
+    //    }
+    //}
     public CandleChartControl()
     {
         Focusable = true;
@@ -76,8 +93,33 @@ public sealed class CandleChartControl : Control
         {
             var mid = _candles[_candles.Length / 2];
             _centerTimeSec = TsNsToEpochSeconds(mid.TsNs);
-            _visibleMinPrice = _candles[0].L / PriceScale;
-            _visibleMaxPrice = _candles[0].H / PriceScale;
+
+            double minP = double.PositiveInfinity;
+            double maxP = double.NegativeInfinity;
+
+            for (int i = 0; i < _candles.Length; i++)
+            {
+                double l = _candles[i].L / PriceScale;
+                double h = _candles[i].H / PriceScale;
+                if (l < minP) minP = l;
+                if (h > maxP) maxP = h;
+            }
+
+            if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP)
+            {
+                minP = 0;
+                maxP = 1;
+            }
+
+            _centerPrice = (minP + maxP) / 2.0;
+
+            // _pricePerPixel = "prix par pixel" => (range visible) / (hauteur)
+            double span = (maxP - minP) * 1.10; // +10% marge
+            _pricePerPixel = span / 300.0;      // fallback tant qu'on ne connaît pas plot.Height
+
+            // garde un visible range cohérent pour le premier Render
+            _visibleMinPrice = minP;
+            _visibleMaxPrice = maxP;
         }
     }
 
@@ -106,11 +148,17 @@ public sealed class CandleChartControl : Control
         if (!_isPanning) return;
 
         var p = e.GetPosition(this);
+
         var dx = p.X - _lastPoint.X;
+        var dy = p.Y - _lastPoint.Y;
+
         _lastPoint = p;
 
-        // Pan X seulement (Y est autoscale)
+        // Pan X
         _centerTimeSec -= dx * _secondsPerPixel;
+
+        // Pan Y (inversé car écran Y vers le bas)
+        _centerPrice += dy * _pricePerPixel;
 
         InvalidateVisual();
     }
@@ -176,17 +224,17 @@ public sealed class CandleChartControl : Control
         // 1) largeur de bougie dépend du zoom X, clamp + gap min
         double bodyW = ComputeBodyWidth(plot);
 
-        // 2) autoscale Y sur bougies visibles (avec marge)
-        // ✅ si aucune bougie visible, on garde une plage "fallback" pour continuer à dessiner axes + grille
-        if (!ComputeVisiblePriceRange(plot, out _visibleMinPrice, out _visibleMaxPrice))
+        // Visible range Y basé sur le plot (pas Bounds)
+        double visiblePriceRange = plot.Height * _pricePerPixel;
+
+        // Range courant (celui qui sert à PriceToY + Y axis)
+        _visibleMinPrice = _centerPrice - visiblePriceRange / 2.0;
+        _visibleMaxPrice = _centerPrice + visiblePriceRange / 2.0;
+
+        // Sécurité
+        if (_visibleMaxPrice <= _visibleMinPrice)
         {
-            // fallback: utilise la dernière plage connue si valide, sinon une plage par défaut
-            if (!double.IsFinite(_visibleMinPrice) || !double.IsFinite(_visibleMaxPrice) || _visibleMaxPrice <= _visibleMinPrice)
-            {
-                _visibleMinPrice = 0;
-                _visibleMaxPrice = 1;
-            }
-            // et surtout: on NE return pas
+            _visibleMaxPrice = _visibleMinPrice + 1e-9;
         }
 
         // Axes
@@ -288,10 +336,10 @@ public sealed class CandleChartControl : Control
         return true;
     }
 
+
     private double PriceToY(double price, Rect plot)
     {
-        double span = Math.Max(1e-12, _visibleMaxPrice - _visibleMinPrice);
-        double t = (price - _visibleMinPrice) / span; // 0..1
+        double t = (price - _visibleMinPrice) / (_visibleMaxPrice - _visibleMinPrice);
         return plot.Bottom - t * plot.Height;
     }
 
