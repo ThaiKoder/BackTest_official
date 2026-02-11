@@ -9,6 +9,7 @@
 
 
 	<Application.Resources>
+		<SolidColorBrush x:Key="Color.Text.Primary" Color="White"/>
 		<SolidColorBrush x:Key="Color.Background.Unfocus" Color="#2e2e2e"/>
 		<SolidColorBrush x:Key="Color.Background.Focus" Color="#4a4a4a"/>
 		<SolidColorBrush x:Key="Color.Background" Color="#191919"/>
