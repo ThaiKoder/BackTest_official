@@ -232,7 +232,7 @@ public sealed class CandleChartControl : Control
             double bot = Math.Max(yO, yC);
 
             // Si le corps dépasse du plot → on ne dessine PAS la bougie
-            if (bodyRight <= plot.Left || bodyLeft >= plot.Right)
+            if (bodyRight >= plot.Right || bodyLeft <= plot.Left)
                 continue;
 
             if (bot <= plot.Top || top >= plot.Bottom)
