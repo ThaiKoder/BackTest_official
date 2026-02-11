@@ -30,30 +30,48 @@
 
 				<!-- Minimize -->
 				<Button Grid.Column="1"
-						Content="_"
 						Width="35"
 						Cursor="Hand"
 						Background="Transparent"
 						Foreground="{DynamicResource Color.Text.Primary}"
-						Click="Minimize_Click"/>
+						Click="Minimize_Click">
+						
+						<Svg Path="avares://BacktestApp/Assets/minus.svg"
+							 Width="14"
+							 Height="14"
+							 Stretch="Uniform"/>
+						
+						
+				</Button>
 
 				<!-- Maximize -->
 				<Button Grid.Column="2"
-						Content="□"
 						Background="Transparent"
 						Foreground="{DynamicResource Color.Text.Primary}"
 						Width="35"
 						Cursor="Hand"
-						Click="Maximize_Click"/>
+						Click="Maximize_Click">
+
+						<Svg Path="avares://BacktestApp/Assets/square.svg"
+							 Width="14"
+							 Height="14"
+							 Stretch="Uniform"/>
+				</Button>
+
 
 				<!-- Close -->
 				<Button Grid.Column="3"
-						Content="X"
 						Background="Transparent"
 						Foreground="{DynamicResource Color.Text.Primary}"
 						Width="35"
 						Cursor="Hand"
-						Click="Close_Click"/>
+						Click="Close_Click">
+
+						<Svg Path="avares://BacktestApp/Assets/cross.svg"
+							 Width="14"
+							 Height="14"
+							 Stretch="Uniform"/>
+				</Button>
 			</Grid>
 		</Border>
 

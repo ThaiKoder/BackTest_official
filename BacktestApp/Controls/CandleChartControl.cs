@@ -269,8 +269,8 @@ public sealed class CandleChartControl : Control
         if (_candles.Length == 0) return;
 
         // Brushes / pens
-        var bg = new SolidColorBrush(Color.FromRgb(0x19, 0x19, 0x19));
-        var axisBg = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12));
+        var bg = (IBrush?)Application.Current?.FindResource("Color.Background");
+        var axisBg = (IBrush?)Application.Current?.FindResource("Color.Background");
         var gridPen = new Pen(new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A)), 1);
         var axisPen = new Pen(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), 1);
         var labelBrush = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
