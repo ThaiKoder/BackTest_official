@@ -11,13 +11,12 @@
         Title="BacktestApp"
 		ExtendClientAreaToDecorationsHint="True"
 		ExtendClientAreaChromeHints="NoChrome"
-		ExtendClientAreaTitleBarHeightHint="40"
-		Background="{DynamicResource Color.Background}">
+		ExtendClientAreaTitleBarHeightHint="35"
+		>
 
-	<Grid RowDefinitions="40,*">
+	<Grid RowDefinitions="35,*">
 
 		<Border Grid.Row="0"
-				Background="{DynamicResource Color.Background.Header}"
 				PointerPressed="Header_PointerPressed">
 
 			<Grid ColumnDefinitions="*,Auto,Auto,Auto">
@@ -31,24 +30,27 @@
 				<!-- Minimize -->
 				<Button Grid.Column="1"
 						Content="_"
-						Width="40"
+						Width="35"
 						Cursor="Hand"
+						Background="Transparent"
 						Foreground="{DynamicResource Color.Text.Primary}"
 						Click="Minimize_Click"/>
 
 				<!-- Maximize -->
 				<Button Grid.Column="2"
 						Content="□"
+						Background="Transparent"
 						Foreground="{DynamicResource Color.Text.Primary}"
-						Width="40"
+						Width="35"
 						Cursor="Hand"
 						Click="Maximize_Click"/>
 
 				<!-- Close -->
 				<Button Grid.Column="3"
 						Content="X"
+						Background="Transparent"
 						Foreground="{DynamicResource Color.Text.Primary}"
-						Width="40"
+						Width="35"
 						Cursor="Hand"
 						Click="Close_Click"/>
 			</Grid>
