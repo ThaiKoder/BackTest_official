@@ -48,6 +48,10 @@ public sealed class CandleChartControl : Control
     private double _centerPrice;
     private double _pricePerPixel;
 
+    private bool _isZoomingY;
+    private double _yZoomAnchorPrice; // prix sous la souris au moment du click
+    private double _yZoomAnchorT;     // position normalisée 0..1 dans le plot (0=bas,1=haut)
+
 
     // Données test
     private readonly Candle[] _candles =
@@ -127,40 +131,94 @@ public sealed class CandleChartControl : Control
     {
         base.OnPointerPressed(e);
 
-        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+
+        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
+        var plot = GetPlotRect(bounds);
+
+        var p = e.GetPosition(this);
+
+        // Zone axe Y = tout ce qui est à gauche du plot
+        bool inYAxis = p.X < plot.Left && p.Y >= plot.Top && p.Y <= plot.Bottom;
+
+        _lastPoint = p;
+
+        if (inYAxis)
         {
-            _isPanning = true;
-            _lastPoint = e.GetPosition(this);
+            _isZoomingY = true;
+
+            // Anchor = prix sous la souris + position dans le plot
+            _yZoomAnchorT = (plot.Bottom - p.Y) / plot.Height; // 0..1
+            _yZoomAnchorPrice = YToPrice(p.Y, plot);
+
             e.Pointer.Capture(this);
+            e.Handled = true;
+            return;
         }
+
+        // sinon pan normal (X+Y)
+        _isPanning = true;
+        e.Pointer.Capture(this);
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+
         _isPanning = false;
+        _isZoomingY = false;
+
         e.Pointer.Capture(null);
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (!_isPanning) return;
+
+        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
+        var plot = GetPlotRect(bounds);
 
         var p = e.GetPosition(this);
-
         var dx = p.X - _lastPoint.X;
         var dy = p.Y - _lastPoint.Y;
-
         _lastPoint = p;
 
-        // Pan X
-        _centerTimeSec -= dx * _secondsPerPixel;
+        // Zoom Y via drag sur axe Y
+        if (_isZoomingY)
+        {
+            // dy < 0 (vers le haut) => zoom-in => _pricePerPixel diminue
+            // dy > 0 (vers le bas) => zoom-out => _pricePerPixel augmente
+            double factor = Math.Exp(dy * 0.01); // sensibilité (0.01 à ajuster)
+            double newPPP = Clamp(_pricePerPixel * factor, 1e-9, 1e9);
 
-        // Pan Y (inversé car écran Y vers le bas)
-        _centerPrice += dy * _pricePerPixel;
+            // Anchor : on veut garder le même prix sous la souris
+            // prix(y) = min + t*span
+            // span = plot.Height * ppp
+            // min = center - span/2
+            // => price = (center - span/2) + t*span = center + (t - 0.5)*span
+            double oldSpan = plot.Height * _pricePerPixel;
+            double newSpan = plot.Height * newPPP;
 
-        InvalidateVisual();
+            _pricePerPixel = newPPP;
+
+            // Recalcule center pour préserver l'anchor price
+            _centerPrice = _yZoomAnchorPrice - (_yZoomAnchorT - 0.5) * newSpan;
+
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
+
+        // Pan normal
+        if (_isPanning)
+        {
+            _centerTimeSec -= dx * _secondsPerPixel;
+            _centerPrice += dy * _pricePerPixel;
+
+            InvalidateVisual();
+            e.Handled = true;
+        }
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
