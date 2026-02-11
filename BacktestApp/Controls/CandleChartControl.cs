@@ -212,6 +212,7 @@ public sealed class CandleChartControl : Control
 
         // Brushes / pens
         var bg = new SolidColorBrush(Color.FromRgb(0x19, 0x19, 0x19));
+        var axisBg = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12));
         var gridPen = new Pen(new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A)), 1);
         var axisPen = new Pen(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), 1);
         var labelBrush = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
@@ -219,85 +220,91 @@ public sealed class CandleChartControl : Control
         var upBrush = new SolidColorBrush(Color.FromRgb(0x2E, 0xC2, 0x7E));
         var dnBrush = new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x5A));
 
+        // 1) background global
         ctx.FillRectangle(bg, bounds);
 
-        // 1) largeur de bougie dépend du zoom X, clamp + gap min
+        // 2) largeur bougie
         double bodyW = ComputeBodyWidth(plot);
 
-        // Visible range Y basé sur le plot (pas Bounds)
-        double visiblePriceRange = plot.Height * _pricePerPixel;
-
-        // Range courant (celui qui sert à PriceToY + Y axis)
-        _visibleMinPrice = _centerPrice - visiblePriceRange / 2.0;
-        _visibleMaxPrice = _centerPrice + visiblePriceRange / 2.0;
-
-        // Sécurité
-        if (_visibleMaxPrice <= _visibleMinPrice)
+        // 3) init Y si pas prêt (évite axe à 0 + bougies invisibles)
+        if (_pricePerPixel <= 0)
         {
-            _visibleMaxPrice = _visibleMinPrice + 1e-9;
+            // fallback simple: range sur toutes les bougies
+            double minP = double.PositiveInfinity, maxP = double.NegativeInfinity;
+            for (int i = 0; i < _candles.Length; i++)
+            {
+                double l = _candles[i].L / PriceScale;
+                double h = _candles[i].H / PriceScale;
+                if (l < minP) minP = l;
+                if (h > maxP) maxP = h;
+            }
+            if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP) { minP = 0; maxP = 1; }
+
+            _centerPrice = (minP + maxP) / 2.0;
+            _pricePerPixel = ((maxP - minP) * 1.10) / plot.Height; // +10% marge
+            _visibleMinPrice = minP;
+            _visibleMaxPrice = maxP;
         }
 
-        // Axes
+        // 4) range Y courant
+        double visiblePriceRange = plot.Height * _pricePerPixel;
+        _visibleMinPrice = _centerPrice - visiblePriceRange / 2.0;
+        _visibleMaxPrice = _centerPrice + visiblePriceRange / 2.0;
+        if (_visibleMaxPrice <= _visibleMinPrice) _visibleMaxPrice = _visibleMinPrice + 1e-9;
+
+        // 5) profil axes
+        var axisProfile = AxisProfile.FromBodyWidth(bodyW);
+
+        // 6) BOUGIES -> CLIP AU PLOT (elles ne peuvent jamais passer sur les axes)
+        using (ctx.PushClip(plot))
+        {
+            for (int i = 0; i < _candles.Length; i++)
+            {
+                var c = _candles[i];
+                double tSec = TsNsToEpochSeconds(c.TsNs);
+                double xCenter = WorldTimeToScreenX(tSec, plot);
+
+                if (xCenter < plot.Left - 100 || xCenter > plot.Right + 100)
+                    continue;
+
+                double o = c.O / PriceScale;
+                double h = c.H / PriceScale;
+                double l = c.L / PriceScale;
+                double cl = c.C / PriceScale;
+
+                double yH = PriceToY(h, plot);
+                double yL = PriceToY(l, plot);
+                double yO = PriceToY(o, plot);
+                double yC = PriceToY(cl, plot);
+
+                bool up = cl >= o;
+                var brush = up ? upBrush : dnBrush;
+
+                ctx.DrawLine(wickPen, new Point(xCenter, yH), new Point(xCenter, yL));
+
+                double top = Math.Min(yO, yC);
+                double bot = Math.Max(yO, yC);
+
+                double height = Math.Max(2, bot - top);
+                var body = new Rect(xCenter - bodyW / 2, top, bodyW, height);
+                ctx.FillRectangle(brush, body);
+            }
+        }
+
+        // 7) FOND DES AXES (au-dessus des bougies)
+        var leftAxisRect = new Rect(0, 0, plot.Left, bounds.Height);
+        ctx.FillRectangle(axisBg, leftAxisRect);
+
+        var bottomAxisRect = new Rect(0, plot.Bottom, bounds.Width, bounds.Height - plot.Bottom);
+        ctx.FillRectangle(axisBg, bottomAxisRect);
+
+        // 8) AXES + GRILLE + LABELS (tout au-dessus)
         ctx.DrawLine(axisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
         ctx.DrawLine(axisPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
 
-        // 3) Axes adaptatifs en fonction de bodyW
-        var axisProfile = AxisProfile.FromBodyWidth(bodyW);
-
         DrawYAxis(ctx, plot, gridPen, axisPen, labelBrush, axisProfile);
         DrawXAxis(ctx, plot, gridPen, axisPen, labelBrush, axisProfile);
-
-
-
-
-        // 4) candles
-        for (int i = 0; i < _candles.Length; i++)
-        {
-            var c = _candles[i];
-            double tSec = TsNsToEpochSeconds(c.TsNs);
-            double xCenter = WorldTimeToScreenX(tSec, plot);
-
-            if (xCenter < plot.Left - 100 || xCenter > plot.Right + 100)
-                continue;
-
-            double o = c.O / PriceScale;
-            double h = c.H / PriceScale;
-            double l = c.L / PriceScale;
-            double cl = c.C / PriceScale;
-
-            double yH = PriceToY(h, plot);
-            double yL = PriceToY(l, plot);
-            double yO = PriceToY(o, plot);
-            double yC = PriceToY(cl, plot);
-
-            // ===== CULLING STRICT =====
-            double half = bodyW / 2.0;
-
-            double bodyLeft = xCenter - half;
-            double bodyRight = xCenter + half;
-
-            double top = Math.Min(yO, yC);
-            double bot = Math.Max(yO, yC);
-
-            // Si le corps dépasse du plot → on ne dessine PAS la bougie
-            if (bodyRight >= plot.Right || bodyLeft <= plot.Left)
-                continue;
-
-            if (bot <= plot.Top || top >= plot.Bottom)
-                continue;
-
-            bool up = cl >= o;
-            var brush = up ? upBrush : dnBrush;
-
-            ctx.DrawLine(wickPen, new Point(xCenter, yH), new Point(xCenter, yL));
-
-            double height = Math.Max(2, bot - top);
-            var body = new Rect(xCenter - bodyW / 2, top, bodyW, height);
-            ctx.FillRectangle(brush, body);
-        }
-
     }
-
     // =========================
     // Auto Y on visible candles
     // =========================
@@ -438,7 +445,7 @@ public sealed class CandleChartControl : Control
             double y = plot.Bottom - tt * plot.Height;
             double price = YToPrice(y, plot);
 
-            ctx.DrawLine(gridPen, new Point(plot.Left, y), new Point(plot.Right, y));
+            //ctx.DrawLine(gridPen, new Point(plot.Left, y), new Point(plot.Right, y));
             ctx.DrawLine(axisPen, new Point(plot.Left - 4, y), new Point(plot.Left, y));
 
             DrawText(ctx, price.ToString(p.PriceFormat, CultureInfo.InvariantCulture), 6, y - 8, labelBrush);
@@ -455,7 +462,7 @@ public sealed class CandleChartControl : Control
             double timeSec = ScreenXToWorldTime(x, plot);
             var dt = DateTimeOffset.FromUnixTimeSeconds((long)timeSec).UtcDateTime;
 
-            ctx.DrawLine(gridPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
+            //ctx.DrawLine(gridPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
             ctx.DrawLine(axisPen, new Point(x, plot.Bottom), new Point(x, plot.Bottom + 4));
 
             DrawText(ctx, dt.ToString(p.TimeFormat, CultureInfo.InvariantCulture), x - 28, plot.Bottom + 6, labelBrush);
