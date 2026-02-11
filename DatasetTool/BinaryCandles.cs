@@ -2,6 +2,7 @@
 using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace DatasetTool
 {
@@ -17,7 +18,31 @@ namespace DatasetTool
 
 
         //Read FAST : lit le fichier en utilisant un buffer partagé pour éviter les allocations répétées
+        public static void ReadFile(string binPath)
+        {
+            using var fs = File.OpenRead(binPath);
+            using var br = new BinaryReader(fs);
 
+            long ts = br.ReadInt64();
+            long o = br.ReadInt64();
+            long h = br.ReadInt64();
+            long l = br.ReadInt64();
+            long c = br.ReadInt64();
+            uint v = br.ReadUInt32();
+            byte[] sym = br.ReadBytes(10);
+            string s = Encoding.ASCII.GetString(sym).TrimEnd('\0');
+
+
+
+
+
+            long ms = ts / 1_000_000L;
+
+            DateTimeOffset dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+
+            Console.WriteLine($"FIRST TS = {dto:O}");
+            Console.WriteLine($"FIRST O = {o} ; H = {h} ; L = {l} ; C = {c} ; V = {v} ; S = {s}");
+        }
 
         //V1
         //public static void ReadAllFast(

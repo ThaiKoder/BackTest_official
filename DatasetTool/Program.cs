@@ -87,7 +87,7 @@ internal static class Program
     static void Main()
     {
         string binDir = Path.Combine(AppContext.BaseDirectory, "data", "bin", "glbx-mdp3-20100606-20100612.ohlcv-1m.bin");
-        JsonToBinaryConverter.ReadFile(binDir);
+        Binary.ReadFile(binDir);
     }
 
 

@@ -41,31 +41,7 @@ namespace DatasetTool
     public static class JsonToBinaryConverter
     {
 
-        public static void ReadFile(string binPath)
-        {
-            using var fs = File.OpenRead(binPath);
-            using var br = new BinaryReader(fs);
 
-            long ts = br.ReadInt64();
-            long o = br.ReadInt64();
-            long h = br.ReadInt64();
-            long l = br.ReadInt64();
-            long c = br.ReadInt64();
-            uint v = br.ReadUInt32();
-            byte[] sym = br.ReadBytes(10);
-            string s = Encoding.ASCII.GetString(sym).TrimEnd('\0');
-
-
-
-
-
-            long ms = ts / 1_000_000L;
-
-            DateTimeOffset dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
-
-            Console.WriteLine($"FIRST TS = {dto:O}");
-            Console.WriteLine($"FIRST O = {o} ; H = {h} ; L = {l} ; C = {c} ; V = {v} ; S = {s}");
-        }
 
         internal static Candle1m ReadCandle(ref Utf8JsonReader reader)
         {
