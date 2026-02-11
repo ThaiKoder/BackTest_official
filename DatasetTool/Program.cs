@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace DatasetTool;
+
 internal static class Program
 {
     // Ajuste selon ton besoin
@@ -84,11 +85,120 @@ internal static class Program
     //}
 
 
-    static void Main()
+    //static void Main()
+    //{
+    //    string binDir = Path.Combine(AppContext.BaseDirectory, "data", "bin", "glbx-mdp3-20100606-20100612.ohlcv-1m.bin");
+    //    Binary.ReadFile(binDir);
+    //}
+
+
+
+
+    static async Task<int> Main(string[] args)
     {
-        string binDir = Path.Combine(AppContext.BaseDirectory, "data", "bin", "glbx-mdp3-20100606-20100612.ohlcv-1m.bin");
-        Binary.ReadFile(binDir);
+        bool enableConvert = false; // Passe à true pour convertire JSON->BIN
+        int limitFiles = -1; // Limite lecture fichier bin
+        int limitCandles = 2; // Limite lecture bougies par fichier
+
+
+        string inputDir = args.Length > 0
+            ? args[0]
+            : Path.Combine(AppContext.BaseDirectory, "data", "json");
+
+        if (!Directory.Exists(inputDir))
+        {
+            Console.WriteLine($"Dossier introuvable: {inputDir}");
+            return 1;
+        }
+
+
+        var jsonFiles = Directory.GetFiles(inputDir, "*.json");
+
+        if (jsonFiles.Length == 0)
+        {
+            Console.WriteLine("Aucun JSON trouvé.");
+            return 0;
+        }
+
+        string binDir = Path.Combine(inputDir, "..", "bin");
+        Directory.CreateDirectory(binDir);
+        if (enableConvert)
+        {
+            Console.WriteLine("=== CONVERSION JSON -> BIN ===");
+            Console.WriteLine($"Conversion de {jsonFiles.Length} fichier(s)...");
+
+            foreach (var json in jsonFiles)
+            {
+                string binPath = Path.Combine(
+                    binDir,
+                    Path.GetFileNameWithoutExtension(json) + ".bin");
+
+                Console.WriteLine($"→ {Path.GetFileName(json)}");
+
+                await JsonToBinaryConverter.ConvertJsonAsync(json, binPath);
+            }
+
+            Console.WriteLine();
+        }
+        Console.WriteLine("=== TEST LECTURE ===");
+        var binFiles = Directory.GetFiles(binDir, "*.bin");
+
+        if (binFiles.Length == 0)
+        {
+            Console.WriteLine("Aucun .bin trouvé.");
+            return 0;
+        }
+
+        long globalCount = 0;
+        long localCount = 0;
+        var swGlobal = Stopwatch.StartNew();
+
+        //Parcourir les fichiers binaires
+        foreach (var binPath in binFiles)
+        {
+
+            if (globalCount >= limitFiles && limitFiles != -1) break;
+
+            Console.WriteLine($"=== {Path.GetFileName(binPath)} ===");
+
+            using var bin = new Binary(binPath);
+
+
+
+            // Accès rapide à toute les bougies d'un fichier
+            bin.ReadAllFast((ts, o, h, l, c, v, symbol) =>
+            {
+                if (localCount >= limitCandles && limitCandles != -1) return; 
+
+                long ms = ts / 1_000_000L;
+                var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+
+                Console.WriteLine(
+                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+
+                localCount++;
+
+            });
+
+            Console.WriteLine();
+            Console.WriteLine();
+            localCount = 0;
+            globalCount++;
+
+        }
+
+        swGlobal.Stop();
+        Console.WriteLine();
+        Console.WriteLine("=================================");
+        Console.WriteLine();
+        Console.WriteLine();
+        Console.WriteLine($"Total Fichier: {globalCount}");
+        Console.WriteLine();
+        Console.WriteLine($"Temps total lecture: {swGlobal.ElapsedMilliseconds} ms");
+
+        return 0;
     }
+
 
 
 

@@ -1,14 +1,18 @@
 ﻿using System;
 using System.IO;
 using System.IO.MemoryMappedFiles;
-using System.Runtime.InteropServices;
 using System.Text;
 
 namespace DatasetTool
 {
     public sealed class Binary : IDisposable
     {
-        private const int CandleSize = 44;
+        // 5x Int64 (Ts,O,H,L,C) = 40
+        // 1x UInt32 (V)         = 4
+        // 10 bytes symbol       = 10
+        // TOTAL                = 54
+        private const int CandleSize = 54;
+        private const int SymbolSize = 10;
 
         private readonly MemoryMappedFile _mmf;
         private readonly MemoryMappedViewAccessor _accessor;
@@ -16,8 +20,7 @@ namespace DatasetTool
 
         public long CandleCount => _candleCount;
 
-
-        //Read FAST : lit le fichier en utilisant un buffer partagé pour éviter les allocations répétées
+        // Read FAST (debug): lit le 1er record
         public static void ReadFile(string binPath)
         {
             using var fs = File.OpenRead(binPath);
@@ -29,62 +32,16 @@ namespace DatasetTool
             long l = br.ReadInt64();
             long c = br.ReadInt64();
             uint v = br.ReadUInt32();
-            byte[] sym = br.ReadBytes(10);
+
+            byte[] sym = br.ReadBytes(SymbolSize);
             string s = Encoding.ASCII.GetString(sym).TrimEnd('\0');
 
-
-
-
-
             long ms = ts / 1_000_000L;
-
             DateTimeOffset dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
             Console.WriteLine($"FIRST TS = {dto:O}");
             Console.WriteLine($"FIRST O = {o} ; H = {h} ; L = {l} ; C = {c} ; V = {v} ; S = {s}");
         }
-
-        //V1
-        //public static void ReadAllFast(
-        //    string binPath,
-        //    byte[] buffer,
-        //    Action<long, long, long, long, long, int>? onCandle = null)
-        //{
-        //    const int CandleSize = 44;
-
-        //    using var fs = new FileStream(
-        //        binPath,
-        //        FileMode.Open,
-        //        FileAccess.Read,
-        //        FileShare.Read,
-        //        bufferSize: buffer.Length,
-        //        FileOptions.SequentialScan
-        //    );
-
-        //    while (true)
-        //    {
-        //        int bytesRead = fs.Read(buffer, 0, buffer.Length);
-        //        if (bytesRead == 0) break;
-
-        //        int records = bytesRead / CandleSize;
-        //        Span<byte> span = buffer.AsSpan(0, records * CandleSize);
-
-        //        for (int i = 0; i < records; i++)
-        //        {
-        //            int off = i * CandleSize;
-
-        //            long ts = MemoryMarshal.Read<long>(span.Slice(off + 0));
-        //            long o = MemoryMarshal.Read<long>(span.Slice(off + 8));
-        //            long h = MemoryMarshal.Read<long>(span.Slice(off + 16));
-        //            long l = MemoryMarshal.Read<long>(span.Slice(off + 24));
-        //            long c = MemoryMarshal.Read<long>(span.Slice(off + 32));
-        //            int v = MemoryMarshal.Read<int>(span.Slice(off + 40));
-
-        //            onCandle?.Invoke(ts, o, h, l, c, v);
-        //        }
-        //    }
-        //}
-
 
         public Binary(string binPath)
         {
@@ -113,7 +70,7 @@ namespace DatasetTool
         }
 
         // =====================================================
-        // 🔥 ACCÈS ULTRA RAPIDE PAR INDEX
+        // ACCÈS RAPIDE PAR INDEX
         // =====================================================
         public void GetCandle(
             long index,
@@ -122,9 +79,9 @@ namespace DatasetTool
             out long h,
             out long l,
             out long c,
-            out int v)
+            out uint v,
+            out string symbol)
         {
-
             if ((ulong)index >= (ulong)_candleCount)
                 throw new ArgumentOutOfRangeException(nameof(index));
 
@@ -135,18 +92,24 @@ namespace DatasetTool
             h = _accessor.ReadInt64(offset + 16);
             l = _accessor.ReadInt64(offset + 24);
             c = _accessor.ReadInt64(offset + 32);
-            v = _accessor.ReadInt32(offset + 40);
+
+            v = _accessor.ReadUInt32(offset + 40);
+
+            // Lire symbol (10 bytes)
+            byte[] sym = new byte[SymbolSize];
+            _accessor.ReadArray(offset + 44, sym, 0, SymbolSize);
+            symbol = Encoding.ASCII.GetString(sym).TrimEnd('\0');
         }
 
         // =====================================================
-        // 🔁 STREAM COMPLET (séquentiel, très rapide aussi)
+        // STREAM COMPLET (séquentiel)
         // =====================================================
-        public void ReadAllFast(Action<long, long, long, long, long, int> onCandle)
+        public void ReadAllFast(Action<long, long, long, long, long, uint, string> onCandle)
         {
             for (long i = 0; i < _candleCount; i++)
             {
-                GetCandle(i, out var ts, out var o, out var h, out var l, out var c, out var v);
-                onCandle(ts, o, h, l, c, v);
+                GetCandle(i, out var ts, out var o, out var h, out var l, out var c, out var v, out var s);
+                onCandle(ts, o, h, l, c, v, s);
             }
         }
 
@@ -156,5 +119,4 @@ namespace DatasetTool
             _mmf.Dispose();
         }
     }
-
 }
