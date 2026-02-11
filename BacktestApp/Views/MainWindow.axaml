@@ -3,18 +3,39 @@
         xmlns:vm="using:BacktestApp.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+		xmlns:dock="https://github.com/avaloniaui"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="BacktestApp.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/avalonia-logo.ico"
         Title="BacktestApp">
 
-    <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
+	<dock:DockControl InitializeLayout="True" InitializeFactory="True">
+		<dock:DockControl.Factory>
+			<dock:Factory />
+		</dock:DockControl.Factory>
 
-    <TextBlock Text="{Binding Greeting}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+		<dock:RootDock>
+			<dock:ProportionalDock Orientation="Horizontal">
+
+				<!-- ✅ Panneau détachable + pin -->
+				<dock:ToolDock Proportion="0.25" Alignment="Left">
+					<dock:Tool Id="Tool1" Title="Panneau">
+						<TextBlock Margin="12" Text="Tool panel (pin / detach)" />
+					</dock:Tool>
+				</dock:ToolDock>
+
+				<dock:ProportionalDockSplitter />
+
+				<!-- ✅ Zone centrale -->
+				<dock:DocumentDock>
+					<dock:Document Id="Doc1" Title="Chart">
+						<TextBlock Margin="12" Text="Zone chart" />
+					</dock:Document>
+				</dock:DocumentDock>
+
+			</dock:ProportionalDock>
+		</dock:RootDock>
+	</dock:DockControl>
 
 </Window>
