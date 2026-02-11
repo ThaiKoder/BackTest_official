@@ -84,53 +84,61 @@ internal static class Program
     //}
 
 
-
     static void Main()
     {
-        string binDir = Path.Combine(AppContext.BaseDirectory, "data", "bin");
-
-        var swTotal = Stopwatch.StartNew();
-        long totalCandles = 0;
-
-        Console.WriteLine($"Lecture des fichiers bin dans : {binDir}");
-
-        foreach (var binPath in Directory.EnumerateFiles(binDir, "*.bin"))
-        {
-            //Console.WriteLine($"--- {Path.GetFileName(binPath)}");
-
-            using var bin = new Binary(binPath);
-
-            //Console.WriteLine($"Bougies : {bin.CandleCount:N0}");
-            totalCandles += bin.CandleCount;
-
-            // 🔹 Accès rapide à la dernière bougie du fichier
-            long lastIndex = bin.CandleCount - 1;
-
-            bin.GetCandle(lastIndex,
-                out var ts, out var o, out var h, out var l, out var c, out var v);
-
-            //Console.WriteLine($"Last TS={ts} O={o} H={h} L={l} C={c} V={v}");
-
-            // 🔹 Lecture complète (backtest / indicateurs)
-            bin.ReadAllFast((ts, o, h, l, c, v) =>
-            {
-                // logique trading / indicateurs ici
-            });
-        }
-
-        swTotal.Stop();
-        Console.WriteLine();
-        Console.WriteLine($"Total bougies lues : {totalCandles:N0}");
-        Console.WriteLine($"Temps total        : {swTotal.Elapsed}");
+        string binDir = Path.Combine(AppContext.BaseDirectory, "data", "bin", "glbx-mdp3-20100606-20100612.ohlcv-1m.bin");
+        JsonToBinaryConverter.ReadFile(binDir);
     }
 
+
+
+    //static void Main()
+    //{
+    //    string binDir = Path.Combine(AppContext.BaseDirectory, "data", "bin");
+
+    //    var swTotal = Stopwatch.StartNew();
+    //    long totalCandles = 0;
+
+    //    Console.WriteLine($"Lecture des fichiers bin dans : {binDir}");
+
+    //    foreach (var binPath in Directory.EnumerateFiles(binDir, "*.bin"))
+    //    {
+    //        //Console.WriteLine($"--- {Path.GetFileName(binPath)}");
+
+    //        using var bin = new Binary(binPath);
+
+    //        //Console.WriteLine($"Bougies : {bin.CandleCount:N0}");
+    //        totalCandles += bin.CandleCount;
+
+    //        // 🔹 Accès rapide à la dernière bougie du fichier
+    //        long lastIndex = bin.CandleCount - 1;
+
+    //        bin.GetCandle(lastIndex,
+    //            out var ts, out var o, out var h, out var l, out var c, out var v);
+
+    //        //Console.WriteLine($"Last TS={ts} O={o} H={h} L={l} C={c} V={v}");
+
+    //        // 🔹 Lecture complète (backtest / indicateurs)
+    //        bin.ReadAllFast((ts, o, h, l, c, v) =>
+    //        {
+    //            // logique trading / indicateurs ici
+    //        });
+    //    }
+
+    //    swTotal.Stop();
+    //    Console.WriteLine();
+    //    Console.WriteLine($"Total bougies lues : {totalCandles:N0}");
+    //    Console.WriteLine($"Temps total        : {swTotal.Elapsed}");
+    //}
 
 
     // Conversion des fichiers JSON en BIN
     //static async Task<int> Main(string[] args)
     //{
     //    string inputDir = args.Length > 0 ? args[0] : InputDir;
-    //    bool recursive = args.Length > 1 ? bool.TryParse(args[1], out var r) && r : IncludeSubDirectories;
+    //    bool recursive = args.Length > 1
+    //        ? bool.TryParse(args[1], out var r) && r
+    //        : IncludeSubDirectories;
 
     //    if (!Directory.Exists(inputDir))
     //    {
@@ -145,7 +153,6 @@ internal static class Program
     //        ReturnSpecialDirectories = false
     //    };
 
-    //    // Choisis ton pattern si nécessaire (ex: "*.ohlcv-1m.json")
     //    var jsonFiles = Directory.EnumerateFiles(inputDir, "*.json", opt).ToList();
 
     //    if (jsonFiles.Count == 0)
@@ -157,6 +164,10 @@ internal static class Program
     //    Console.WriteLine($"Trouvé {jsonFiles.Count} fichier(s) .json dans {Path.GetFullPath(inputDir)}");
     //    Console.WriteLine($"Parallelisme: {MaxParallel}");
 
+    //    // Bin à côté de inputDir (…/inputDir/../bin)
+    //    var binDir = Path.GetFullPath(Path.Combine(inputDir, "..", "bin"));
+    //    Directory.CreateDirectory(binDir);
+
     //    var cts = new CancellationTokenSource();
     //    Console.CancelKeyPress += (_, e) =>
     //    {
@@ -166,7 +177,6 @@ internal static class Program
     //    };
 
     //    long ok = 0, skipped = 0, failed = 0;
-
     //    var swAll = Stopwatch.StartNew();
 
     //    await Parallel.ForEachAsync(
@@ -174,12 +184,6 @@ internal static class Program
     //        new ParallelOptions { MaxDegreeOfParallelism = MaxParallel, CancellationToken = cts.Token },
     //        async (jsonPath, ct) =>
     //        {
-    //            var jsonDir = Path.GetDirectoryName(jsonPath)!;              // .../data/json
-    //            var dataDir = Directory.GetParent(jsonDir)!.FullName;        // .../data
-    //            var binDir = Path.GetFullPath(Path.Combine(inputDir, "..", "bin"));
-
-    //            Directory.CreateDirectory(binDir);
-
     //            var binPath = Path.Combine(
     //                binDir,
     //                Path.GetFileNameWithoutExtension(jsonPath) + ".bin"
@@ -217,7 +221,6 @@ internal static class Program
     //            {
     //                Interlocked.Increment(ref failed);
     //                Console.Error.WriteLine($"FAIL {jsonPath}\n     {ex.GetType().Name}: {ex.Message}");
-    //                // (optionnel) supprimer le .bin partiel
     //                try { if (File.Exists(binPath)) File.Delete(binPath); } catch { /* ignore */ }
     //            }
     //        });
@@ -229,7 +232,5 @@ internal static class Program
 
     //    return failed == 0 ? 0 : 2;
     //}
-
-
 
 }

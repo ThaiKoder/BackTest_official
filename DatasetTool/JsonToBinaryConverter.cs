@@ -15,9 +15,10 @@ namespace DatasetTool
         public long H { get; }
         public long L { get; }
         public long C { get; }
-        public long V { get; }
+        public uint V { get; }
+        public string Symbol { get; }
 
-        public Candle1m(long tsNs, long o, long h, long l, long c, long v)
+        public Candle1m(long tsNs, long o, long h, long l, long c, uint v, string symbol)
         {
             //if (tsNs < 0) throw new JsonException("Missing required field: hd.ts_event");
             //if (o < 0) throw new JsonException("Missing required field: open");
@@ -32,6 +33,7 @@ namespace DatasetTool
             L = l;
             C = c;
             V = v;
+            Symbol = symbol;
         }
     }
 
@@ -39,9 +41,37 @@ namespace DatasetTool
     public static class JsonToBinaryConverter
     {
 
+        public static void ReadFile(string binPath)
+        {
+            using var fs = File.OpenRead(binPath);
+            using var br = new BinaryReader(fs);
+
+            long ts = br.ReadInt64();
+            long o = br.ReadInt64();
+            long h = br.ReadInt64();
+            long l = br.ReadInt64();
+            long c = br.ReadInt64();
+            uint v = br.ReadUInt32();
+            byte[] sym = br.ReadBytes(10);
+            string s = Encoding.ASCII.GetString(sym).TrimEnd('\0');
+
+
+
+
+
+            long ms = ts / 1_000_000L;
+
+            DateTimeOffset dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+
+            Console.WriteLine($"FIRST TS = {dto:O}");
+            Console.WriteLine($"FIRST O = {o} ; H = {h} ; L = {l} ; C = {c} ; V = {v} ; S = {s}");
+        }
+
         internal static Candle1m ReadCandle(ref Utf8JsonReader reader)
         {
-            long tsNs = 0, o = 0, h = 0, l = 0, c = 0, v = 0;
+            long tsNs = 0, o = 0, h = 0, l = 0, c = 0;
+            uint v = 0;
+            string s = "";
 
             while (reader.Read())
             {
@@ -51,16 +81,21 @@ namespace DatasetTool
                 if (reader.TokenType != JsonTokenType.PropertyName)
                     continue;
 
-                // Nom de propriété
                 if (reader.ValueTextEquals("hd"))
                 {
-                    reader.Read(); // StartObject
+                    reader.Read(); // doit être StartObject
+                    if (reader.TokenType != JsonTokenType.StartObject)
+                        throw new FormatException("hd doit être un objet");
+
                     while (reader.Read())
                     {
                         if (reader.TokenType == JsonTokenType.EndObject)
                             break;
 
-                        if (reader.TokenType == JsonTokenType.PropertyName && reader.ValueTextEquals("ts_event"))
+                        if (reader.TokenType != JsonTokenType.PropertyName)
+                            continue;
+
+                        if (reader.ValueTextEquals("ts_event"))
                         {
                             reader.Read(); // Value
                             string iso = reader.GetString()!;
@@ -68,7 +103,9 @@ namespace DatasetTool
                         }
                         else
                         {
-                            reader.Skip(); // ignore le reste de hd
+                            // IMPORTANT: sauter la VALEUR de la propriété
+                            reader.Read();
+                            reader.Skip();
                         }
                     }
                 }
@@ -95,21 +132,40 @@ namespace DatasetTool
                 else if (reader.ValueTextEquals("volume"))
                 {
                     reader.Read();
-                    v = ParseLongMaybeString(ref reader);
+                    v = ParseUInt32MaybeString(ref reader);
+                }
+                else if (reader.ValueTextEquals("symbol"))
+                {
+                    reader.Read();
+                    s = GetStringValue(ref reader);
                 }
                 else
                 {
-                    // symbol / instrument_id / rtype etc.
+                    // IMPORTANT: sauter la VALEUR de la propriété
+                    reader.Read();
                     reader.Skip();
                 }
             }
 
+            return new Candle1m(tsNs, o, h, l, c, v, s);
+        }
 
-            return new Candle1m(tsNs, o, h, l, c, v);
+        private static void WriteFixedString10(BinaryWriter bw, string symbol)
+        {
+            Span<byte> tmp = stackalloc byte[10];
+            tmp.Clear();
+
+            // on encode en ASCII (idéal pour symbol type "BTCUSDT", etc.)
+            // si tu as des caractères non ASCII, remplace par Encoding.UTF8 (mais longueur variable)
+            int n = Encoding.ASCII.GetBytes(symbol.AsSpan(), tmp);
+            // si symbol > 10, n sera 10 (troncature)
+            bw.Write(tmp);
         }
 
         public static async Task ConvertJsonAsync(string jsonPath, string binPath, CancellationToken ct = default)
         {
+            long lineNo = 0;
+
             await using var fs = new FileStream(
                 jsonPath,
                 FileMode.Open,
@@ -165,6 +221,23 @@ namespace DatasetTool
 
                             if (len > 0)
                             {
+                                lineNo++;
+                                try
+                                {
+                                    var candle2 = ReadCandleFromJsonLine(line.AsSpan(0, len));
+                                    bw.Write(candle2.TsNs);
+                                    bw.Write(candle2.O);
+                                    bw.Write(candle2.H);
+                                    bw.Write(candle2.L);
+                                    bw.Write(candle2.C);
+                                    bw.Write(candle2.V);
+                                    WriteFixedString10(bw, candle2.Symbol);
+                                }
+                                catch (Exception ex)
+                                {
+                                    var txt = Encoding.UTF8.GetString(line, 0, len);
+                                    throw new FormatException($"[{Path.GetFileName(jsonPath)}] ligne {lineNo}: {txt}", ex);
+                                }
                                 var candle = ReadCandleFromJsonLine(line.AsSpan(0, len));
                                 bw.Write(candle.TsNs);
                                 bw.Write(candle.O);
@@ -172,6 +245,7 @@ namespace DatasetTool
                                 bw.Write(candle.L);
                                 bw.Write(candle.C);
                                 bw.Write(candle.V);
+                                WriteFixedString10(bw, candle.Symbol);
                             }
                         }
 
@@ -199,6 +273,8 @@ namespace DatasetTool
                 bw.Write(candle.L);
                 bw.Write(candle.C);
                 bw.Write(candle.V);
+                WriteFixedString10(bw, candle.Symbol);
+
             }
 
             bw.Flush();
@@ -227,7 +303,14 @@ namespace DatasetTool
             return ReadCandle(ref reader);
         }
 
+        internal static string GetStringValue(ref Utf8JsonReader reader)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+                throw new InvalidOperationException(
+                    $"Token attendu String, reçu {reader.TokenType}");
 
+            return reader.GetString()!;
+        }
         internal static long ParseLongMaybeString(ref Utf8JsonReader reader)
         {
             return reader.TokenType switch
@@ -238,13 +321,60 @@ namespace DatasetTool
             };
         }
 
+        internal static ulong ParseULongMaybeString(ref Utf8JsonReader reader)
+        {
+            if (reader.TokenType == JsonTokenType.Number)
+            {
+                if (reader.TryGetUInt64(out var n))
+                    return n;
+
+                throw new FormatException("UInt64 invalide (Number)");
+            }
+
+            if (reader.TokenType == JsonTokenType.String)
+            {
+                var s = reader.GetString();
+
+                if (ulong.TryParse(
+                    s,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var v))
+                    return v;
+
+                throw new FormatException($"UInt64 invalide (String): '{s}'");
+            }
+
+            throw new FormatException($"UInt64 invalide (TokenType): {reader.TokenType}");
+        }
+
+
+        internal static uint ParseUInt32MaybeString(ref Utf8JsonReader reader)
+        {
+            return reader.TokenType switch
+            {
+                JsonTokenType.Number when reader.TryGetUInt32(out var n) => n,
+
+                JsonTokenType.String when uint.TryParse(
+                    reader.GetString(),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out var s) => s,
+
+                _ => throw new FormatException($"UInt32 invalide: {reader.TokenType}")
+            };
+        }
         // "2010-06-06T22:00:00.000000000Z" -> epoch ns
         internal static long ParseIsoToEpochNs(string isoZ)
         {
             int dot = isoZ.IndexOf('.');
             if (dot < 0)
             {
-                var dto = DateTimeOffset.Parse(isoZ, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+                var dto = DateTimeOffset.Parse(
+                    isoZ,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal);
+
                 return dto.ToUnixTimeMilliseconds() * 1_000_000L;
             }
 
@@ -254,15 +384,51 @@ namespace DatasetTool
             string basePart = isoZ[..dot] + "Z";
             string fracPart = isoZ[(dot + 1)..z];
 
-            var dto2 = DateTimeOffset.Parse(basePart, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+            var dto2 = DateTimeOffset.Parse(
+                basePart,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal);
+
             long baseNs = dto2.ToUnixTimeMilliseconds() * 1_000_000L;
 
             // normaliser fraction à 9 digits (ns)
-            if (fracPart.Length > 9) fracPart = fracPart[..9];
+            if (fracPart.Length > 9)
+                fracPart = fracPart[..9];
+
             fracPart = fracPart.PadRight(9, '0');
 
             long extraNs = long.Parse(fracPart, CultureInfo.InvariantCulture);
+
             return baseNs + extraNs;
+        }
+        internal static ulong ParseTimestampNsMaybeString(ref Utf8JsonReader reader)
+        {
+            if (reader.TokenType == JsonTokenType.Number && reader.TryGetUInt64(out var n))
+                return n;
+
+            if (reader.TokenType == JsonTokenType.String)
+            {
+                var s = reader.GetString();
+
+                if (string.IsNullOrWhiteSpace(s))
+                    throw new FormatException("Timestamp vide");
+
+                // 1) epoch en string
+                if (ulong.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var epoch))
+                    return epoch;
+
+                // 2) ISO 8601 en string -> epoch ns
+                try
+                {
+                    return (ulong)ParseIsoToEpochNs(s);
+                }
+                catch (Exception ex)
+                {
+                    throw new FormatException($"Timestamp string invalide: '{s}'", ex);
+                }
+            }
+
+            throw new FormatException($"Timestamp invalide: {reader.TokenType}");
         }
     }
 }
