@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
 		xmlns:dock="https://github.com/avaloniaui"
+		xmlns:controls="using:BacktestApp.Controls"
         mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="BacktestApp.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
@@ -14,7 +15,7 @@
 		ExtendClientAreaTitleBarHeightHint="35"
 		>
 
-	<Grid RowDefinitions="35,*">
+	<Grid RowDefinitions="35,*" Background="{DynamicResource Color.Background.Unfocus}">
 
 		<Border Grid.Row="0"
 				PointerPressed="Header_PointerPressed">
@@ -85,7 +86,7 @@
 						<Border Background="{DynamicResource Color.Background}" Padding="0">
 							<Grid>
 								<!-- ChartControl Skia -->
-								<TextBlock Margin="12" Foreground="White" Text="Skia Chart" />
+								<controls:CandleChartControl />
 							</Grid>
 						</Border>
 					</dock:Document>
