@@ -76,6 +76,8 @@ public sealed class CandleChartControl : Control
         {
             var mid = _candles[_candles.Length / 2];
             _centerTimeSec = TsNsToEpochSeconds(mid.TsNs);
+            _visibleMinPrice = _candles[0].L / PriceScale;
+            _visibleMaxPrice = _candles[0].H / PriceScale;
         }
     }
 
@@ -175,8 +177,17 @@ public sealed class CandleChartControl : Control
         double bodyW = ComputeBodyWidth(plot);
 
         // 2) autoscale Y sur bougies visibles (avec marge)
+        // ✅ si aucune bougie visible, on garde une plage "fallback" pour continuer à dessiner axes + grille
         if (!ComputeVisiblePriceRange(plot, out _visibleMinPrice, out _visibleMaxPrice))
-            return;
+        {
+            // fallback: utilise la dernière plage connue si valide, sinon une plage par défaut
+            if (!double.IsFinite(_visibleMinPrice) || !double.IsFinite(_visibleMaxPrice) || _visibleMaxPrice <= _visibleMinPrice)
+            {
+                _visibleMinPrice = 0;
+                _visibleMaxPrice = 1;
+            }
+            // et surtout: on NE return pas
+        }
 
         // Axes
         ctx.DrawLine(axisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
@@ -187,6 +198,9 @@ public sealed class CandleChartControl : Control
 
         DrawYAxis(ctx, plot, gridPen, axisPen, labelBrush, axisProfile);
         DrawXAxis(ctx, plot, gridPen, axisPen, labelBrush, axisProfile);
+
+
+
 
         // 4) candles
         for (int i = 0; i < _candles.Length; i++)
