@@ -1,41 +1,56 @@
 ﻿using System;
+using System.Buffers;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Buffers;
+using System.Text;
+
 
 namespace DatasetTool
 {
-    public readonly record struct Candle1m
+    public readonly struct Candle1m
     {
-        public long TsNs { get; }
-        public long O { get; }
-        public long H { get; }
-        public long L { get; }
-        public long C { get; }
-        public uint V { get; }
-        public string Symbol { get; }
+        public readonly long TsNs;
+        public readonly long O, H, L, C;
+        public readonly uint V;
+        public readonly byte SymbolCode;
 
-        public Candle1m(long tsNs, long o, long h, long l, long c, uint v, string symbol)
-        {
-            //if (tsNs < 0) throw new JsonException("Missing required field: hd.ts_event");
-            //if (o < 0) throw new JsonException("Missing required field: open");
-            //if (h < 0) throw new JsonException("Missing required field: high");
-            //if (l <= 0) throw new JsonException("Missing required field: low");
-            //if (c <= 0) throw new JsonException("Missing required field: close");
-            //if (v <= 0) throw new JsonException("Missing required field: volume");
-
-            TsNs = tsNs;
-            O = o;
-            H = h;
-            L = l;
-            C = c;
-            V = v;
-            Symbol = symbol;
-        }
+        public Candle1m(long tsNs, long o, long h, long l, long c, uint v, byte symbolCode)
+            => (TsNs, O, H, L, C, V, SymbolCode) = (tsNs, o, h, l, c, v, symbolCode);
     }
+
+    //public readonly record struct Candle1m
+    //{
+    //    public long TsNs { get; }
+    //    public long O { get; }
+    //    public long H { get; }
+    //    public long L { get; }
+    //    public long C { get; }
+    //    public uint V { get; }
+    //    public byte Symbol { get; }
+
+    //    public Candle1m(long tsNs, long o, long h, long l, long c, uint v, byte symbol)
+    //    {
+    //        //if (tsNs < 0) throw new JsonException("Missing required field: hd.ts_event");
+    //        //if (o < 0) throw new JsonException("Missing required field: open");
+    //        //if (h < 0) throw new JsonException("Missing required field: high");
+    //        //if (l <= 0) throw new JsonException("Missing required field: low");
+    //        //if (c <= 0) throw new JsonException("Missing required field: close");
+    //        //if (v <= 0) throw new JsonException("Missing required field: volume");
+
+    //        TsNs = tsNs;
+    //        O = o;
+    //        H = h;
+    //        L = l;
+    //        C = c;
+    //        V = v;
+    //        Symbol = symbol;
+    //    }
+    //}
 
 
     public static class JsonToBinaryConverter
@@ -47,7 +62,7 @@ namespace DatasetTool
         {
             long tsNs = 0, o = 0, h = 0, l = 0, c = 0;
             uint v = 0;
-            string s = "";
+            byte s = 0;
 
             while (reader.Read())
             {
@@ -113,7 +128,7 @@ namespace DatasetTool
                 else if (reader.ValueTextEquals("symbol"))
                 {
                     reader.Read();
-                    s = GetStringValue(ref reader);
+                    s = GetSymbolValue(ref reader);
                 }
                 else
                 {
@@ -138,32 +153,20 @@ namespace DatasetTool
             bw.Write(tmp);
         }
 
+
         public static async Task ConvertJsonAsync(string jsonPath, string binPath, CancellationToken ct = default)
         {
             long lineNo = 0;
 
-            await using var fs = new FileStream(
-                jsonPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 1 << 20,
-                useAsync: true);
+            await using var fs = new FileStream(jsonPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 1 << 20, useAsync: true);
 
-            await using var outFs = new FileStream(
-                binPath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 1 << 20,
-                useAsync: true);
+            await using var outFs = new FileStream(binPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                bufferSize: 1 << 20, useAsync: true);
 
             using var bw = new BinaryWriter(outFs, Encoding.UTF8, leaveOpen: true);
 
-            // Buffer de lecture
             byte[] buffer = new byte[1 << 20];
-
-            // "carry" stocke le bout de ligne coupée entre deux ReadAsync
             byte[] carry = new byte[1 << 20];
             int carryLen = 0;
 
@@ -173,63 +176,17 @@ namespace DatasetTool
                 ct.ThrowIfCancellationRequested();
 
                 int start = 0;
-
                 for (int i = 0; i < bytesRead; i++)
                 {
-                    if (buffer[i] == (byte)'\n')
-                    {
-                        int segLen = i - start;
-                        int totalLen = carryLen + segLen;
+                    if (buffer[i] != (byte)'\n') continue;
 
-                        if (totalLen > 0)
-                        {
-                            // Construire la ligne complète (carry + segment)
-                            byte[] line = new byte[totalLen];
-                            if (carryLen > 0) Buffer.BlockCopy(carry, 0, line, 0, carryLen);
-                            if (segLen > 0) Buffer.BlockCopy(buffer, start, line, carryLen, segLen);
+                    // traiter une ligne (sync)
+                    ProcessLine(buffer, start, i - start, ref carry, ref carryLen, ref lineNo, jsonPath, bw);
 
-                            // reset carry
-                            carryLen = 0;
-
-                            // enlever '\r' si CRLF
-                            int len = totalLen;
-                            if (len > 0 && line[len - 1] == (byte)'\r') len--;
-
-                            if (len > 0)
-                            {
-                                lineNo++;
-                                try
-                                {
-                                    var candle2 = ReadCandleFromJsonLine(line.AsSpan(0, len));
-                                    bw.Write(candle2.TsNs);
-                                    bw.Write(candle2.O);
-                                    bw.Write(candle2.H);
-                                    bw.Write(candle2.L);
-                                    bw.Write(candle2.C);
-                                    bw.Write(candle2.V);
-                                    WriteFixedString10(bw, candle2.Symbol);
-                                }
-                                catch (Exception ex)
-                                {
-                                    var txt = Encoding.UTF8.GetString(line, 0, len);
-                                    throw new FormatException($"[{Path.GetFileName(jsonPath)}] ligne {lineNo}: {txt}", ex);
-                                }
-                                var candle = ReadCandleFromJsonLine(line.AsSpan(0, len));
-                                bw.Write(candle.TsNs);
-                                bw.Write(candle.O);
-                                bw.Write(candle.H);
-                                bw.Write(candle.L);
-                                bw.Write(candle.C);
-                                bw.Write(candle.V);
-                                WriteFixedString10(bw, candle.Symbol);
-                            }
-                        }
-
-                        start = i + 1;
-                    }
+                    start = i + 1;
                 }
 
-                // Reste sans '\n' => va dans carry
+                // reste -> carry
                 int remaining = bytesRead - start;
                 if (remaining > 0)
                 {
@@ -239,23 +196,96 @@ namespace DatasetTool
                 }
             }
 
-            // Dernière ligne si pas de \n final
+            // dernière ligne
             if (carryLen > 0)
+                ProcessFinalCarryLine(carry, carryLen, ref lineNo, jsonPath, bw);
+
+
+            bw.Flush();
+        }
+
+        // ✅ SYNC => pas de problème C# 12 avec ref Utf8JsonReader
+        private static void ProcessLine(
+            byte[] buffer, int start, int segLen,
+            ref byte[] carry, ref int carryLen,
+            ref long lineNo, string jsonPath,
+            BinaryWriter bw)
+        {
+            int totalLen = carryLen + segLen;
+            if (totalLen <= 0) { carryLen = 0; return; }
+
+            // construire Span ligne sans alloc si possible
+            ReadOnlySpan<byte> lineSpan;
+            byte[]? tmp = null;
+
+            if (carryLen == 0)
             {
-                var candle = ReadCandleFromJsonLine(carry.AsSpan(0, carryLen));
+                lineSpan = buffer.AsSpan(start, segLen);
+            }
+            else
+            {
+                tmp = ArrayPool<byte>.Shared.Rent(totalLen);
+                carry.AsSpan(0, carryLen).CopyTo(tmp);
+                buffer.AsSpan(start, segLen).CopyTo(tmp.AsSpan(carryLen));
+                lineSpan = tmp.AsSpan(0, totalLen);
+            }
+
+            carryLen = 0;
+
+            if (!lineSpan.IsEmpty && lineSpan[^1] == (byte)'\r')
+                lineSpan = lineSpan[..^1];
+
+            if (!lineSpan.IsEmpty)
+            {
+                lineNo++;
+                try
+                {
+                    var candle = ReadCandleFromJsonLine(lineSpan);
+
+                    bw.Write(candle.TsNs);
+                    bw.Write(candle.O);
+                    bw.Write(candle.H);
+                    bw.Write(candle.L);
+                    bw.Write(candle.C);
+                    bw.Write(candle.V);
+                    bw.Write((byte)0);
+                }
+                catch (Exception ex)
+                {
+                    string txt = Encoding.UTF8.GetString(lineSpan);
+                    throw new FormatException($"[{Path.GetFileName(jsonPath)}] ligne {lineNo}: {txt}", ex);
+                }
+            }
+
+            if (tmp is not null)
+                ArrayPool<byte>.Shared.Return(tmp);
+        }
+
+        private static void ProcessFinalCarryLine(byte[] carry, int carryLen, ref long lineNo, string jsonPath, BinaryWriter bw)
+        {
+            ReadOnlySpan<byte> lineSpan = carry.AsSpan(0, carryLen);
+            if (!lineSpan.IsEmpty && lineSpan[^1] == (byte)'\r') lineSpan = lineSpan[..^1];
+            if (lineSpan.IsEmpty) return;
+
+            lineNo++;
+            try
+            {
+                var candle = ReadCandleFromJsonLine(lineSpan);
+
                 bw.Write(candle.TsNs);
                 bw.Write(candle.O);
                 bw.Write(candle.H);
                 bw.Write(candle.L);
                 bw.Write(candle.C);
                 bw.Write(candle.V);
-                WriteFixedString10(bw, candle.Symbol);
-
+                bw.Write(candle.SymbolCode);
             }
-
-            bw.Flush();
+            catch (Exception ex)
+            {
+                string txt = Encoding.UTF8.GetString(lineSpan);
+                throw new FormatException($"[{Path.GetFileName(jsonPath)}] ligne {lineNo}: {txt}", ex);
+            }
         }
-
         private static void EnsureCapacity(ref byte[] arr, int needed)
         {
             if (arr.Length >= needed) return;
@@ -405,6 +435,22 @@ namespace DatasetTool
             }
 
             throw new FormatException($"Timestamp invalide: {reader.TokenType}");
+        }
+
+        internal static byte GetSymbolValue(ref Utf8JsonReader reader)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+                throw new InvalidOperationException(
+                    $"Token attendu String, reçu {reader.TokenType}");
+
+            //if (reader.ValueTextEquals("A")) return 0;
+            //if (reader.ValueTextEquals("B")) return 1;
+            //if (reader.ValueTextEquals("C")) return 2;
+            //if (reader.ValueTextEquals("D")) return 3;
+
+            return 0;
+
+            throw new InvalidOperationException("Valeur inconnue");
         }
     }
 }

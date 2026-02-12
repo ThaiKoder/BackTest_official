@@ -94,7 +94,7 @@ internal static class Program
 
 
 
-
+    //LECTURE OK
     static async Task<int> Main(string[] args)
     {
         bool enableConvert = false; // Passe à true pour convertire JSON->BIN

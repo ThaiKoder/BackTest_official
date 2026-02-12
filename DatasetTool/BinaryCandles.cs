@@ -11,7 +11,7 @@ namespace DatasetTool
         // 1x UInt32 (V)         = 4
         // 10 bytes symbol       = 10
         // TOTAL                = 54
-        private const int CandleSize = 54;
+        private const int CandleSize = 45;
         private const int SymbolSize = 10;
 
         private readonly MemoryMappedFile _mmf;
@@ -34,7 +34,7 @@ namespace DatasetTool
             uint v = br.ReadUInt32();
 
             byte[] sym = br.ReadBytes(SymbolSize);
-            string s = Encoding.ASCII.GetString(sym).TrimEnd('\0');
+            byte s = br.ReadByte();
 
             long ms = ts / 1_000_000L;
             DateTimeOffset dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
@@ -80,7 +80,7 @@ namespace DatasetTool
             out long l,
             out long c,
             out uint v,
-            out string symbol)
+            out byte symbol)
         {
             if ((ulong)index >= (ulong)_candleCount)
                 throw new ArgumentOutOfRangeException(nameof(index));
@@ -98,13 +98,13 @@ namespace DatasetTool
             // Lire symbol (10 bytes)
             byte[] sym = new byte[SymbolSize];
             _accessor.ReadArray(offset + 44, sym, 0, SymbolSize);
-            symbol = Encoding.ASCII.GetString(sym).TrimEnd('\0');
+            symbol = _accessor.ReadByte(offset + 44);
         }
 
         // =====================================================
         // STREAM COMPLET (séquentiel)
         // =====================================================
-        public void ReadAllFast(Action<long, long, long, long, long, uint, string> onCandle)
+        public void ReadAllFast(Action<long, long, long, long, long, uint, byte> onCandle)
         {
             for (long i = 0; i < _candleCount; i++)
             {
