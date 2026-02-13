@@ -155,39 +155,27 @@ internal static class Program
         var swGlobal = Stopwatch.StartNew();
 
         //Parcourir les fichiers binaires
+        long totalCandles = 0;
+        var sw = Stopwatch.StartNew();
+
         foreach (var binPath in binFiles)
         {
-
-            if (globalCount >= limitFiles && limitFiles != -1) break;
-
-            //Console.WriteLine($"=== {Path.GetFileName(binPath)} ===");
-
             using var bin = new Binary(binPath);
 
+            long count = bin.CandleCount;
 
-
-            // Accès rapide à toute les bougies d'un fichier
-            bin.ReadAllFast((ts, o, h, l, c, v, symbol) =>
+            for (long i = 0; i < count; i++)
             {
-                if (localCount >= limitCandles && limitCandles != -1) return;
-
-                long ms = ts / 1_000_000L;
-                var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
-
-                //Console.WriteLine(
-                //    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
-
-                localCount++;
-
-            });
-
-            //Console.WriteLine();
-            //Console.WriteLine();
-            localCount = 0;
-            globalCount++;
-
+                bin.GetCandle(i, out var ts, out _, out _, out _, out _, out _, out _);
+                totalCandles++;
+            }
         }
 
+        sw.Stop();
+
+        Console.WriteLine($"Total candles: {totalCandles}");
+        Console.WriteLine($"Temps total: {sw.ElapsedMilliseconds} ms");
+        Console.WriteLine($"Candles/sec: {(totalCandles / sw.Elapsed.TotalSeconds):N0}");
         swGlobal.Stop();
         Console.WriteLine();
         Console.WriteLine("=================================");
