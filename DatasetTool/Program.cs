@@ -160,7 +160,7 @@ internal static class Program
 
             if (globalCount >= limitFiles && limitFiles != -1) break;
 
-            Console.WriteLine($"=== {Path.GetFileName(binPath)} ===");
+            //Console.WriteLine($"=== {Path.GetFileName(binPath)} ===");
 
             using var bin = new Binary(binPath);
 
@@ -174,15 +174,15 @@ internal static class Program
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
-                Console.WriteLine(
-                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+                //Console.WriteLine(
+                //    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
 
                 localCount++;
 
             });
 
-            Console.WriteLine();
-            Console.WriteLine();
+            //Console.WriteLine();
+            //Console.WriteLine();
             localCount = 0;
             globalCount++;
 
