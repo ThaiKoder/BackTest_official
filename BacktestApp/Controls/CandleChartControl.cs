@@ -1,12 +1,16 @@
-﻿using System;
-using System.Globalization;
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using System;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Threading.Tasks;
+using DatasetTool;
 
 namespace BacktestApp.Controls;
-//
+
 public sealed class CandleChartControl : Control
 {
     public readonly record struct Candle(
@@ -60,6 +64,111 @@ public sealed class CandleChartControl : Control
         new Candle(TsNsFromUtc(2026,02,11,10,01,00), 110, 112,  98, 102, 12, "GOOG"),
         new Candle(TsNsFromUtc(2026,02,11,10,02,00), 102, 125, 101, 123, 20, "GOOG"),
     ];
+
+
+    static async Task<int> ReadFile()
+    {
+        bool enableConvert = false; // Passe à true pour convertire JSON->BIN
+        int limitFiles = -1; // Limite lecture fichier bin
+        int limitCandles = 2; // Limite lecture bougies par fichier
+
+
+        string inputDir = Path.Combine(AppContext.BaseDirectory, "data", "json");
+
+        if (!Directory.Exists(inputDir))
+        {
+            Debug.WriteLine($"Dossier introuvable: {inputDir}");
+            return 1;
+        }
+
+
+        var jsonFiles = Directory.GetFiles(inputDir, "*.json");
+
+        if (jsonFiles.Length == 0)
+        {
+            Debug.WriteLine("Aucun JSON trouvé.");
+            return 0;
+        }
+
+        string binDir = Path.Combine(inputDir, "..", "bin");
+        Directory.CreateDirectory(binDir);
+        if (enableConvert)
+        {
+            Debug.WriteLine("=== CONVERSION JSON -> BIN ===");
+            Debug.WriteLine($"Conversion de {jsonFiles.Length} fichier(s)...");
+
+            foreach (var json in jsonFiles)
+            {
+                string binPath = Path.Combine(
+                    binDir,
+                    Path.GetFileNameWithoutExtension(json) + ".bin");
+
+                Debug.WriteLine($"→ {Path.GetFileName(json)}");
+
+                await JsonToBinaryConverter.ConvertJsonAsync(json, binPath);
+            }
+
+            Debug.WriteLine("");
+        }
+        Debug.WriteLine("=== TEST LECTURE ===");
+        var binFiles = Directory.GetFiles(binDir, "*.bin");
+
+        if (binFiles.Length == 0)
+        {
+            Debug.WriteLine("Aucun .bin trouvé.");
+            return 0;
+        }
+
+        long globalCount = 0;
+        long localCount = 0;
+        var swGlobal = Stopwatch.StartNew();
+
+        //Parcourir les fichiers binaires
+        foreach (var binPath in binFiles)
+        {
+
+            if (globalCount >= limitFiles && limitFiles != -1) break;
+
+            //Console.WriteLine($"=== {Path.GetFileName(binPath)} ===");
+
+            using var bin = new Binary(binPath);
+
+
+
+            // Accès rapide à toute les bougies d'un fichier
+            bin.ReadAllFast((ts, o, h, l, c, v, symbol) =>
+            {
+                if (localCount >= limitCandles && limitCandles != -1) return;
+
+                long ms = ts / 1_000_000L;
+                var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+
+                Debug.WriteLine(
+                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+
+                localCount++;
+
+            });
+
+            //Console.WriteLine();
+            //Console.WriteLine();
+            localCount = 0;
+            globalCount++;
+
+        }
+
+        swGlobal.Stop();
+        Debug.WriteLine("");
+        Debug.WriteLine("=================================");
+        Debug.WriteLine("");
+        Debug.WriteLine("");
+        Debug.WriteLine($"Total Fichier: {globalCount}");
+        Debug.WriteLine("");
+        Debug.WriteLine($"Temps total lecture: {swGlobal.ElapsedMilliseconds} ms");
+
+        return 0;
+    }
+
 
     private void ClampZoomToGap()
     {
@@ -260,6 +369,7 @@ public sealed class CandleChartControl : Control
     public override void Render(DrawingContext ctx)
     {
         base.Render(ctx);
+        ReadFile();
 
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         if (bounds.Width <= 0 || bounds.Height <= 0) return;

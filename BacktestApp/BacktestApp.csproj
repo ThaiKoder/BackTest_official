@@ -30,6 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\DatasetTool\DatasetTool.csproj" />
     <ProjectReference Include="..\MarketData.Core\MarketData.Core.csproj" />
   </ItemGroup>
 </Project>
