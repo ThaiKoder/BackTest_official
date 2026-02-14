@@ -2,12 +2,14 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using DatasetTool;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
-using DatasetTool;
+using static BacktestApp.Controls.CandleChartControl;
 
 namespace BacktestApp.Controls;
 
@@ -64,6 +66,51 @@ public sealed class CandleChartControl : Control
         new Candle(TsNsFromUtc(2026,02,11,10,01,00), 110, 112,  98, 102, 12, "GOOG"),
         new Candle(TsNsFromUtc(2026,02,11,10,02,00), 102, 125, 101, 123, 20, "GOOG"),
     ];
+
+    public static int GetQuarter(long dateTicks)
+    {
+        DateTime date = new DateTime(dateTicks);
+        int year = date.Year;
+
+        // Fonction pour trouver le 3e vendredi d'un mois
+        DateTime ThirdFriday(int y, int month)
+        {
+
+
+
+            //Recuperer le jour du premier mois
+            DateTime firstDay = new DateTime(y, month, 1);
+
+            //Ajouter le nombre de jours pour arriver au premier vendredi
+            int daysOffset = (int)firstDay.DayOfWeek % 5;
+            DateTime firstFriday;
+
+            //Si le premier jour est un vendredi, on reste dessus, sinon on avance jusqu'au vendredi suivant
+            firstFriday = (daysOffset != 0 ? firstDay.AddDays(5 - daysOffset) : firstDay);
+
+            //Faire * 3 pour arriver au 3e vendredi
+            DateTime thirdFriday = firstFriday.AddDays(14);
+
+            //-1 pour arriver au jour avant le 3e vendredi soit changement jeudi
+            return thirdFriday.AddDays(-1);
+        }
+
+        // Vendredi avant le 3e vendredi
+        DateTime Q1Date = ThirdFriday(year, 3);
+        DateTime Q2Date = ThirdFriday(year, 6);
+        DateTime Q3Date = ThirdFriday(year, 9);
+        DateTime Q4Date = ThirdFriday(year, 12);
+
+        if (date <= Q1Date)
+            return 1;
+        if (date <= Q2Date)
+            return 2;
+        if (date <= Q3Date)
+            return 3;
+        if (date <= Q4Date)
+            return 4;
+        return 1;
+    }
 
 
     static async Task<int> ReadFile()
@@ -123,6 +170,15 @@ public sealed class CandleChartControl : Control
         long localCount = 0;
         var swGlobal = Stopwatch.StartNew();
 
+        var quarterContracts = new Dictionary<int, string>
+           {
+               { 1, "NQH" },
+               { 2, "NQM" },
+               { 3, "NQU" },
+               { 4, "NQZ" },
+
+            };
+
         //Parcourir les fichiers binaires
         foreach (var binPath in binFiles)
         {
@@ -143,8 +199,15 @@ public sealed class CandleChartControl : Control
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
+                int quarter = GetQuarter(ts);
+                string contractName = quarterContracts[quarter];
+
+
                 Debug.WriteLine(
                     $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+
+                Debug.WriteLine(
+                    $"Quarter: Q{quarter} | Contract: {contractName}");
 
                 localCount++;
 
