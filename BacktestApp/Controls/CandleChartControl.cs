@@ -6,7 +6,7 @@ using Avalonia.Input;
 using Avalonia.Media;
 
 namespace BacktestApp.Controls;
-
+//
 public sealed class CandleChartControl : Control
 {
     public readonly record struct Candle(
