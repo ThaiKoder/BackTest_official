@@ -248,7 +248,7 @@ namespace DatasetTool
                     bw.Write(candle.L);
                     bw.Write(candle.C);
                     bw.Write(candle.V);
-                    bw.Write((byte)0);
+                    bw.Write(candle.SymbolCode);
                 }
                 catch (Exception ex)
                 {
@@ -437,20 +437,52 @@ namespace DatasetTool
             throw new FormatException($"Timestamp invalide: {reader.TokenType}");
         }
 
+        //internal static byte GetSymbolValue(ref Utf8JsonReader reader)
+        //{
+        //    if (reader.TokenType != JsonTokenType.String)
+        //        throw new InvalidOperationException(
+        //            $"Token attendu String, reçu {reader.TokenType}");
+
+
+        //    //FAST => Correct later for "NQH-NQZ" or "NQZ-NQH"
+        //    //if (reader.GetString().Trim().StartsWith(contractName, StringComparison.OrdinalIgnoreCase))
+        //    if (reader.GetString().Trim().StartsWith("NQH", StringComparison.OrdinalIgnoreCase)) return 1;
+        //    //if (reader.ValueTextEquals("NQM")) return 2;
+        //    //if (reader.ValueTextEquals("NQU")) return 3;
+        //    //if (reader.ValueTextEquals("NQZ")) return 4;
+
+        //    return 5;
+
+        //    throw new InvalidOperationException("Valeur inconnue");
+        //}
+
+
         internal static byte GetSymbolValue(ref Utf8JsonReader reader)
         {
             if (reader.TokenType != JsonTokenType.String)
                 throw new InvalidOperationException(
                     $"Token attendu String, reçu {reader.TokenType}");
 
-            //if (reader.ValueTextEquals("A")) return 0;
-            //if (reader.ValueTextEquals("B")) return 1;
-            //if (reader.ValueTextEquals("C")) return 2;
-            //if (reader.ValueTextEquals("D")) return 3;
+            var value = reader.GetString();
 
-            return 0;
+            if (value is null)
+                throw new InvalidOperationException("Valeur null");
 
-            throw new InvalidOperationException("Valeur inconnue");
+            value = value.Trim();
+
+            if (value.StartsWith("NQH", StringComparison.OrdinalIgnoreCase))
+                return 1;
+
+            if (value.StartsWith("NQM", StringComparison.OrdinalIgnoreCase))
+                return 2;
+
+            if (value.StartsWith("NQU", StringComparison.OrdinalIgnoreCase))
+                return 3;
+
+            if (value.StartsWith("NQZ", StringComparison.OrdinalIgnoreCase))
+                return 4;
+
+            return 5; // valeur par défaut
         }
     }
 }

@@ -174,8 +174,8 @@ internal static class Program
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
-                //Console.WriteLine(
-                //    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+                Console.WriteLine(
+                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
 
                 localCount++;
 
@@ -199,6 +199,13 @@ internal static class Program
 
         return 0;
     }
+
+
+
+
+
+
+
 
 
     //static int Main()
@@ -275,7 +282,17 @@ internal static class Program
     //}
 
 
-    // Conversion des fichiers JSON en BIN
+
+
+
+
+
+
+
+
+
+
+    //Conversion des fichiers JSON en BIN
     //static async Task<int> Main(string[] args)
     //{
     //    string inputDir = args.Length > 0 ? args[0] : InputDir;
