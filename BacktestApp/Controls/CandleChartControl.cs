@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using DatasetTool;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -65,21 +66,115 @@ public sealed class CandleChartControl : Control
     private CancellationTokenSource? _loadCts;
     private bool _loadedOnce;
 
+
+    private const int VisibleCount = 10;
+    private const int WindowCount = 20;
+    private const int ReloadThreshold = 15;               // dépasse 15 => recharge
+    private const int PrefetchMargin = WindowCount - ReloadThreshold; // 5
+
+    private BacktestApp.Controls.MmapCandleFile? _file;
+    private long _fileCount;
+
+    private long _windowStart;    // index global du début fenêtre
+    private int _windowLoaded;    // <= 20
+
+    // Buffers pré-alloués (zéro alloc)
+    private readonly long[] _ts = new long[WindowCount];
+    private readonly long[] _o = new long[WindowCount];
+    private readonly long[] _h = new long[WindowCount];
+    private readonly long[] _l = new long[WindowCount];
+    private readonly long[] _c = new long[WindowCount];
+    private readonly uint[] _v = new uint[WindowCount];
+
+    // Si tu veux garder symbol sans string : stocke juste les 10 bytes
+    private readonly byte[] _sym = new byte[WindowCount * BacktestApp.Controls.MmapCandleFile.SymbolSize];
+
     public CandleChartControl()
     {
         Focusable = true;
+    }
+
+    private void InitViewFromWindow()
+    {
+        if (_windowLoaded <= 0)
+            return;
+
+        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
+        var plot = GetPlotRect(bounds);
+
+        if (plot.Width <= 0 || plot.Height <= 0)
+            return;
+
+        // ===== X =====
+
+        // intervalle temps entre 2 bougies
+        double dt = 1.0;
+        if (_windowLoaded >= 2)
+        {
+            dt = Math.Abs(
+                TsNsToEpochSeconds(_ts[1]) -
+                TsNsToEpochSeconds(_ts[0])
+            );
+            if (dt <= 0) dt = 1.0;
+        }
+
+        // afficher environ 10 visibles
+        _secondsPerPixel = (VisibleCount * dt) / plot.Width;
+
+        // centrer sur dernière bougie
+        double lastT = TsNsToEpochSeconds(_ts[_windowLoaded - 1]);
+        _centerTimeSec = lastT - (plot.Width * 0.5) * _secondsPerPixel;
+
+        // ===== Y =====
+
+        double minP = double.PositiveInfinity;
+        double maxP = double.NegativeInfinity;
+
+        for (int i = 0; i < _windowLoaded; i++)
+        {
+            double low = _l[i] / PriceScale;
+            double high = _h[i] / PriceScale;
+
+            if (low < minP) minP = low;
+            if (high > maxP) maxP = high;
+        }
+
+        if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP)
+        {
+            minP = 0;
+            maxP = 1;
+        }
+
+        _centerPrice = (minP + maxP) * 0.5;
+        _pricePerPixel = ((maxP - minP) * 1.20) / plot.Height; // +20% marge
+
+        if (_pricePerPixel <= 0)
+            _pricePerPixel = 1e-6;
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
 
-        // Charge une seule fois à l'attache
         if (_loadedOnce) return;
         _loadedOnce = true;
 
-        _loadCts = new CancellationTokenSource();
-        _ = LoadCandlesFromBinAsync(_loadCts.Token);
+        string inputDir = Path.Combine(AppContext.BaseDirectory, "data", "json");
+        string binDir = Path.Combine(inputDir, "..", "bin");
+        var bins = Directory.GetFiles(binDir, "*.bin");
+        Array.Sort(bins, StringComparer.OrdinalIgnoreCase);
+
+        _file?.Dispose();
+        _file = new BacktestApp.Controls.MmapCandleFile(bins[^1]);
+        _fileCount = _file.Count;
+
+        int n = (int)Math.Min(WindowCount, _fileCount);
+        long start = Math.Max(0, _fileCount - n);
+
+        LoadWindow(start, n);
+
+        InitViewFromWindow();
+        InvalidateVisual();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
@@ -91,6 +186,38 @@ public sealed class CandleChartControl : Control
         _loadCts = null;
     }
 
+    private void LoadWindow(long startIndex, int count)
+    {
+        if (_file is null) return;
+
+        // On va lire 2x plus large et ne garder que 1 sur 2
+        long idx = startIndex;
+        int filled = 0;
+
+        while (filled < WindowCount && idx < _fileCount)
+        {
+            Span<byte> sym10 = _sym.AsSpan(filled * MmapCandleFile.SymbolSize, MmapCandleFile.SymbolSize);
+
+            _file.ReadAt(idx, out var ts, out var o, out var h, out var l, out var c, out var v, sym10);
+
+            // Garde seulement les records "valides" (évite les -850000000)
+            if (o > 0 && h > 0 && l > 0 && c > 0)
+            {
+                _ts[filled] = ts;
+                _o[filled] = o;
+                _h[filled] = h;
+                _l[filled] = l;
+                _c[filled] = c;
+                _v[filled] = v;
+                filled++;
+            }
+
+            idx++; // avance d'un record
+        }
+
+        _windowLoaded = filled;
+        _windowStart = startIndex;
+    }
     // =========================
     // Lecture BIN -> _candles
     // =========================
@@ -183,8 +310,7 @@ public sealed class CandleChartControl : Control
 
     private void InitViewFromCandles()
     {
-        if (_candles.Count == 0) return;
-
+        if (_windowLoaded <= 0) return;
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         var plot = GetPlotRect(bounds);
 
@@ -205,7 +331,7 @@ public sealed class CandleChartControl : Control
         pitchPx = Clamp(pitchPx, BodyMin + GapMinPx, BodyMax + GapMaxPx);
 
         _secondsPerPixel = ((n - 1) * dtSec) / plotW;
-        ClampZoomToGap();
+        ClampZoomToGapWindow();
         _centerTimeSec = lastT - (plotW * 0.5) * _secondsPerPixel;
         // ---- Y: centre & taille robustes (pondérés, outliers écrasés) ----
         ComputeRobustCenterAndSize(
@@ -336,7 +462,7 @@ public sealed class CandleChartControl : Control
         double factor = e.Delta.Y > 0 ? 1.10 : 1.0 / 1.10;
         _secondsPerPixel = Clamp(_secondsPerPixel / factor, 1e-6, 1e6);
 
-        ClampZoomToGap();
+        ClampZoomToGapWindow();
 
         double t1 = ScreenXToWorldTime(anchor.X, plot);
         _centerTimeSec += (t0 - t1);
@@ -369,6 +495,19 @@ public sealed class CandleChartControl : Control
         }
     }
 
+
+    private double ComputeBodyWidthWindow(Rect plot)
+    {
+        double dtSec = EstimateDtSecondsWindow();
+        double pxPerCandle = dtSec / _secondsPerPixel;
+
+        double pxClamped = Clamp(pxPerCandle, GapMinPx + 1.0, GapMaxPx + BodyMax);
+        double desired = pxClamped * 0.70;
+        double maxAllowedByGap = Math.Max(1.0, pxClamped - GapMinPx);
+
+        return Clamp(desired, BodyMin, Math.Min(BodyMax, maxAllowedByGap));
+    }
+
     // =========================
     // Render
     // =========================
@@ -377,7 +516,6 @@ public sealed class CandleChartControl : Control
     {
         base.Render(ctx);
 
-        testBloc();
 
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
@@ -385,9 +523,9 @@ public sealed class CandleChartControl : Control
         var plot = GetPlotRect(bounds);
         if (plot.Width <= 0 || plot.Height <= 0) return;
 
-        if (_candles.Count > 0 && (_secondsPerPixel <= 0 || _pricePerPixel <= 0))
+        if (_windowLoaded > 0 && (_secondsPerPixel <= 0 || _pricePerPixel <= 0))
         {
-            InitViewFromCandles();
+            InitViewFromWindow();
         }
 
         // background
@@ -395,11 +533,10 @@ public sealed class CandleChartControl : Control
         var axisBg = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
         ctx.FillRectangle(bg, bounds);
 
-        if (_candles.Count == 0)
+        if (_windowLoaded <= 0)
             return;
-
         // largeur bougie
-        double bodyW = ComputeBodyWidth(plot);
+        double bodyW = ComputeBodyWidthWindow(plot);
 
         // init Y si pas prêt
         if (_pricePerPixel <= 0)
@@ -440,19 +577,18 @@ public sealed class CandleChartControl : Control
         // BOUGIES -> CLIP AU PLOT
         using (ctx.PushClip(plot))
         {
-            for (int i = 0; i < _candles.Count; i++)
+            for (int i = 0; i < _windowLoaded; i++)
             {
-                var c = _candles[i];
-                double tSec = TsNsToEpochSeconds(c.TsNs);
+                double tSec = TsNsToEpochSeconds(_ts[i]);
                 double xCenter = WorldTimeToScreenX(tSec, plot);
 
                 if (xCenter < plot.Left - 100 || xCenter > plot.Right + 100)
                     continue;
 
-                double o = c.O / PriceScale;
-                double h = c.H / PriceScale;
-                double l = c.L / PriceScale;
-                double cl = c.C / PriceScale;
+                double o = _o[i] / PriceScale;
+                double h = _h[i] / PriceScale;
+                double l = _l[i] / PriceScale;
+                double cl = _c[i] / PriceScale;
 
                 double yH = PriceToY(h, plot);
                 double yL = PriceToY(l, plot);
@@ -491,6 +627,28 @@ public sealed class CandleChartControl : Control
     // =========================
     // Zoom clamp
     // =========================
+
+    private double EstimateDtSecondsWindow()
+    {
+        if (_windowLoaded < 2) return 1.0;
+        double a = TsNsToEpochSeconds(_ts[0]);
+        double b = TsNsToEpochSeconds(_ts[1]);
+        double dt = Math.Abs(b - a);
+        return Math.Max(1e-6, dt);
+    }
+
+    private void ClampZoomToGapWindow()
+    {
+        double dtSec = EstimateDtSecondsWindow();
+
+        double minPitch = BodyMin + GapMinPx;
+        double maxPitch = BodyMax + GapMaxPx;
+
+        double minSecondsPerPixel = dtSec / maxPitch;
+        double maxSecondsPerPixel = dtSec / minPitch;
+
+        _secondsPerPixel = Clamp(_secondsPerPixel, minSecondsPerPixel, maxSecondsPerPixel);
+    }
 
     private void ClampZoomToGap()
     {
