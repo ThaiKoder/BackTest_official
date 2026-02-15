@@ -145,7 +145,7 @@ public sealed class CandleChartControl : Control
 
 
                         //!!!!!!!
-                        if (ts != lastTs && nbCdl < 15)
+                        if (ts != lastTs && nbCdl < 150)
                         {
                             tmp.Add(new Candle(ts, o, h, l, c, v, symbol.ToString(CultureInfo.InvariantCulture)));
                             lastTs = ts;
@@ -191,7 +191,7 @@ public sealed class CandleChartControl : Control
         double plotW = plot.Width;
         double plotH = plot.Height;
 
-        int n = 10;
+        int n = 150;
         int start = _candles.Count - n;
 
         // ---- X: 60 dernières candles à l'écran ----
@@ -205,30 +205,27 @@ public sealed class CandleChartControl : Control
 
         _secondsPerPixel = ((n - 1) * dtSec) / plotW;
         ClampZoomToGap();
-        _centerTimeSec = lastT - (plotW * 0.5) * _secondsPerPixel;  
-        double minP = double.PositiveInfinity;
-        double maxP = double.NegativeInfinity;
+        _centerTimeSec = lastT - (plotW * 0.5) * _secondsPerPixel;
+        // ---- Y: centre & taille robustes (pondérés, outliers écrasés) ----
+        ComputeRobustCenterAndSize(
+            _candles,
+            start,
+            _candles.Count,
+            PriceScale,
+            out double centerY,
+            out double sizeY);
 
-        for (int i = start; i < _candles.Count; i++)
-        {
-            double l = _candles[i].L / PriceScale;
-            double h = _candles[i].H / PriceScale;
-            if (l < minP) minP = l;
-            if (h > maxP) maxP = h;
-        }
+        // Marge + sécurité
+        double paddedSize = Math.Max(1e-9, sizeY * 1.20); // +20% marge
+        _centerPrice = centerY;
 
-        if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP)
-        {
-            minP = 0;
-            maxP = 1;
-        }
+        // On veut une fenêtre verticale basée sur la taille typique
+        // Ici: on affiche ~ +/- (paddedSize * K) autour du centre
+        double K = 6.0; // ajuste: 4 = serré, 8 = large
+        double span = paddedSize * K;
 
-        double span = (maxP - minP);
-        double padded = span * 1.10;                     // +10% de marge
-        if (padded <= 0) padded = 1;
-
-        _centerPrice = (minP + maxP) * 0.5;
-        _pricePerPixel = padded / plotH;
+        // Convertit span prix -> pricePerPixel
+        _pricePerPixel = span / Math.Max(1.0, plotH);
 
         _visibleMinPrice = _centerPrice - (plotH * _pricePerPixel) * 0.5;
         _visibleMaxPrice = _centerPrice + (plotH * _pricePerPixel) * 0.5;
@@ -546,6 +543,114 @@ public sealed class CandleChartControl : Control
     // =========================
     // Axes adaptatifs
     // =========================
+
+    private static void ComputeRobustCenterAndSize(
+    List<Candle> candles,
+    int start,
+    int end,
+    double priceScale,
+    out double robustCenter,
+    out double robustSize)
+    {
+        int n = Math.Max(0, end - start);
+        if (n <= 0)
+        {
+            robustCenter = 0;
+            robustSize = 1;
+            return;
+        }
+
+        // On extrait centres & tailles
+        var centers = new double[n];
+        var sizes = new double[n];
+
+        for (int i = 0; i < n; i++)
+        {
+            var c = candles[start + i];
+            double h = c.H / priceScale;
+            double l = c.L / priceScale;
+
+            double center = 0.5 * (h + l);
+            double size = Math.Max(1e-12, h - l);
+
+            centers[i] = center;
+            sizes[i] = size;
+        }
+
+        // Centre robuste: médiane + MAD
+        double medC = MedianInPlace(centers);
+        double madC = MAD(centers, medC);
+        if (madC <= 1e-12) madC = StdFallback(centers, medC);
+
+        // Taille robuste: médiane + MAD
+        double medS = MedianInPlace(sizes);
+        double madS = MAD(sizes, medS);
+        if (madS <= 1e-12) madS = StdFallback(sizes, medS);
+
+        // Pondération: gaussienne autour de la médiane
+        // k = “tolérance” (plus petit => plus agressif sur les outliers)
+        const double k = 3.0;
+
+        double sumWC = 0, sumWCx = 0;
+        double sumWS = 0, sumWSx = 0;
+
+        for (int i = 0; i < n; i++)
+        {
+            double zc = (centers[i] - medC) / (k * madC);
+            double wc = Math.Exp(-0.5 * zc * zc);
+
+            sumWC += wc;
+            sumWCx += wc * centers[i];
+
+            double zs = (sizes[i] - medS) / (k * madS);
+            double ws = Math.Exp(-0.5 * zs * zs);
+
+            sumWS += ws;
+            sumWSx += ws * sizes[i];
+        }
+
+        robustCenter = (sumWC > 1e-12) ? (sumWCx / sumWC) : medC;
+        robustSize = (sumWS > 1e-12) ? (sumWSx / sumWS) : medS;
+
+        // Sécurité
+        if (!double.IsFinite(robustCenter)) robustCenter = medC;
+        if (!double.IsFinite(robustSize) || robustSize <= 0) robustSize = medS > 0 ? medS : 1;
+    }
+
+    private static double MAD(double[] xs, double median)
+    {
+        // MAD = median(|x - median|)
+        var dev = new double[xs.Length];
+        for (int i = 0; i < xs.Length; i++)
+            dev[i] = Math.Abs(xs[i] - median);
+
+        double mad = MedianInPlace(dev);
+
+        // Optionnel: rendre MAD comparable à sigma (normal) => * 1.4826
+        return mad * 1.4826;
+    }
+
+    private static double MedianInPlace(double[] xs)
+    {
+        // Copie locale si tu veux préserver l'ordre; ici on assume ok de trier
+        Array.Sort(xs);
+        int n = xs.Length;
+        if (n == 0) return 0;
+        int mid = n / 2;
+        return (n % 2 == 1) ? xs[mid] : 0.5 * (xs[mid - 1] + xs[mid]);
+    }
+
+    private static double StdFallback(double[] xs, double mean)
+    {
+        // fallback “sigma” si MAD=0 (toutes valeurs égales)
+        double s = 0;
+        for (int i = 0; i < xs.Length; i++)
+        {
+            double d = xs[i] - mean;
+            s += d * d;
+        }
+        return Math.Sqrt(s / Math.Max(1, xs.Length));
+    }
 
     private readonly record struct AxisProfile(int YTicks, int XTicks, string TimeFormat, string PriceFormat)
     {
