@@ -1,13 +1,14 @@
 ﻿using System;
 using System.Buffers;
+using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Buffers;
-using System.Text;
 
 
 namespace DatasetTool
@@ -154,6 +155,53 @@ namespace DatasetTool
         }
 
 
+
+        public static int GetQuarter(long dateTicks)
+        {
+            DateTime date = new DateTime(dateTicks);
+            int year = date.Year;
+
+            // Fonction pour trouver le 3e vendredi d'un mois
+            DateTime ThirdFriday(int y, int month)
+            {
+
+
+
+                //Recuperer le jour du premier mois
+                DateTime firstDay = new DateTime(y, month, 1);
+
+                //Ajouter le nombre de jours pour arriver au premier vendredi
+                int daysOffset = (int)firstDay.DayOfWeek % 5;
+                DateTime firstFriday;
+
+                //Si le premier jour est un vendredi, on reste dessus, sinon on avance jusqu'au vendredi suivant
+                firstFriday = (daysOffset != 0 ? firstDay.AddDays(5 - daysOffset) : firstDay);
+
+                //Faire * 3 pour arriver au 3e vendredi
+                DateTime thirdFriday = firstFriday.AddDays(14);
+
+                //-1 pour arriver au jour avant le 3e vendredi soit changement jeudi
+                return thirdFriday.AddDays(-1);
+            }
+
+            // Vendredi avant le 3e vendredi
+            DateTime Q1Date = ThirdFriday(year, 3);
+            DateTime Q2Date = ThirdFriday(year, 6);
+            DateTime Q3Date = ThirdFriday(year, 9);
+            DateTime Q4Date = ThirdFriday(year, 12);
+
+            if (date <= Q1Date)
+                return 1;
+            if (date <= Q2Date)
+                return 2;
+            if (date <= Q3Date)
+                return 3;
+            if (date <= Q4Date)
+                return 4;
+            return 1;
+        }
+
+
         public static async Task ConvertJsonAsync(string jsonPath, string binPath, CancellationToken ct = default)
         {
             long lineNo = 0;
@@ -211,6 +259,15 @@ namespace DatasetTool
             ref long lineNo, string jsonPath,
             BinaryWriter bw)
         {
+            var quarterContracts = new Dictionary<int, string>
+           {
+               { 1, "NQH" },
+               { 2, "NQM" },
+               { 3, "NQU" },
+               { 4, "NQZ" },
+
+            };
+
             int totalLen = carryLen + segLen;
             if (totalLen <= 0) { carryLen = 0; return; }
 
@@ -241,14 +298,26 @@ namespace DatasetTool
                 try
                 {
                     var candle = ReadCandleFromJsonLine(lineSpan);
+                    int quarter = GetQuarter(candle.TsNs);
+                    string contractName = quarterContracts[quarter];
 
-                    bw.Write(candle.TsNs);
-                    bw.Write(candle.O);
-                    bw.Write(candle.H);
-                    bw.Write(candle.L);
-                    bw.Write(candle.C);
-                    bw.Write(candle.V);
-                    bw.Write(candle.SymbolCode);
+                    //IF OK
+                    int tmpGetQuarter = GetQuarter(candle.TsNs);
+
+                    if (tmpGetQuarter == candle.SymbolCode)
+                    {
+                        Debug.WriteLine($"======>{tmpGetQuarter}");
+
+                        bw.Write(candle.TsNs);
+                        bw.Write(candle.O);
+                        bw.Write(candle.H);
+                        bw.Write(candle.L);
+                        bw.Write(candle.C);
+                        bw.Write(candle.V);
+                        bw.Write(candle.SymbolCode);
+                    }
+
+
                 }
                 catch (Exception ex)
                 {
