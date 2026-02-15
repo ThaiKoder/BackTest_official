@@ -12,9 +12,26 @@ namespace BacktestApp.Controls;
 
 public sealed partial class CandleChartControl
 {
-    // (Recommandé perf) : mettre ces champs ailleurs (fichier 1 ou ici)
-    // private static readonly Pen AxisPen = ...
-    // etc.
+    private static readonly IBrush BgBrush =
+        (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
+
+    private static readonly IBrush AxisBgBrush =
+        (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
+
+    private static readonly Pen AxisPen =
+        new Pen(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), 1);
+
+    private static readonly IBrush LabelBrush =
+        new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
+
+    private static readonly Pen WickPen =
+        new Pen(new SolidColorBrush(Color.FromRgb(0xD0, 0xD0, 0xD0)), 1);
+
+    private static readonly IBrush UpBrush =
+        new SolidColorBrush(Color.FromRgb(0x2E, 0xC2, 0x7E));
+
+    private static readonly IBrush DownBrush =
+        new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x5A));
 
     public override void Render(DrawingContext ctx)
     {
@@ -26,9 +43,9 @@ public sealed partial class CandleChartControl
         var plot = GetPlotRect(bounds);
         if (plot.Width <= 0 || plot.Height <= 0) return;
 
-        var bg = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
-        var axisBg = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
-        ctx.FillRectangle(bg, bounds);
+        var BgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
+        var AxisBgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
+        ctx.FillRectangle(BgBrush, bounds);
 
         if (_windowLoaded <= 0) return;
 
@@ -52,13 +69,6 @@ public sealed partial class CandleChartControl
 
         double bodyW = ComputeBodyWidthWindow();
 
-        // ⚠️ Perf: à remplacer par des champs cached (voir plus bas)
-        var axisPen = new Pen(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), 1);
-        var labelBrush = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
-        var wickPen = new Pen(new SolidColorBrush(Color.FromRgb(0xD0, 0xD0, 0xD0)), 1);
-        var upBrush = new SolidColorBrush(Color.FromRgb(0x2E, 0xC2, 0x7E));
-        var dnBrush = new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x5A));
-
         using (ctx.PushClip(plot))
         {
             for (int i = 0; i < _windowLoaded; i++)
@@ -80,9 +90,9 @@ public sealed partial class CandleChartControl
                 double yC = PriceToY(cl, plot);
 
                 bool up = cl >= o;
-                var brush = up ? upBrush : dnBrush;
+                var brush = up ? UpBrush : DownBrush;
 
-                ctx.DrawLine(wickPen, new Point(xCenter, yH), new Point(xCenter, yL));
+                ctx.DrawLine(WickPen, new Point(xCenter, yH), new Point(xCenter, yL));
 
                 double top = Math.Min(yO, yC);
                 double bot = Math.Max(yO, yC);
@@ -94,20 +104,20 @@ public sealed partial class CandleChartControl
         }
 
         var leftAxisRect = new Rect(0, 0, plot.Left, bounds.Height);
-        ctx.FillRectangle(axisBg, leftAxisRect);
+        ctx.FillRectangle(AxisBgBrush, leftAxisRect);
 
         var bottomAxisRect = new Rect(0, plot.Bottom, bounds.Width, bounds.Height - plot.Bottom);
-        ctx.FillRectangle(axisBg, bottomAxisRect);
+        ctx.FillRectangle(AxisBgBrush, bottomAxisRect);
 
-        ctx.DrawLine(axisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
-        ctx.DrawLine(axisPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
+        ctx.DrawLine(AxisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
+        ctx.DrawLine(AxisPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
 
-        DrawYAxisSimple(ctx, plot, axisPen, labelBrush);
-        DrawXAxisSimple(ctx, plot, axisPen, labelBrush);
+        DrawYAxisSimple(ctx, plot, AxisPen, LabelBrush);
+        DrawXAxisSimple(ctx, plot, AxisPen, LabelBrush);
     }
 
 
-    private void DrawYAxisSimple(DrawingContext ctx, Rect plot, Pen axisPen, IBrush labelBrush)
+    private void DrawYAxisSimple(DrawingContext ctx, Rect plot, Pen AxisPen, IBrush LabelBrush)
     {
         int ticks = 6;
         for (int i = 0; i <= ticks; i++)
@@ -116,13 +126,13 @@ public sealed partial class CandleChartControl
             double y = plot.Bottom - tt * plot.Height;
             double price = YToPrice(y, plot);
 
-            ctx.DrawLine(axisPen, new Point(plot.Left - 4, y), new Point(plot.Left, y));
-            DrawText(ctx, price.ToString("0.###", CultureInfo.InvariantCulture), 6, y - 8, labelBrush);
+            ctx.DrawLine(AxisPen, new Point(plot.Left - 4, y), new Point(plot.Left, y));
+            DrawText(ctx, price.ToString("0.###", CultureInfo.InvariantCulture), 6, y - 8, LabelBrush);
         }
     }
 
 
-    private void DrawXAxisSimple(DrawingContext ctx, Rect plot, Pen axisPen, IBrush labelBrush)
+    private void DrawXAxisSimple(DrawingContext ctx, Rect plot, Pen AxisPen, IBrush LabelBrush)
     {
         int ticks = 6;
         for (int i = 0; i <= ticks; i++)
@@ -133,8 +143,8 @@ public sealed partial class CandleChartControl
             double timeSec = ScreenXToWorldTime(x, plot);
             var dt = DateTimeOffset.FromUnixTimeSeconds((long)timeSec).UtcDateTime;
 
-            ctx.DrawLine(axisPen, new Point(x, plot.Bottom), new Point(x, plot.Bottom + 4));
-            DrawText(ctx, dt.ToString("HH:mm", CultureInfo.InvariantCulture), x - 22, plot.Bottom + 6, labelBrush);
+            ctx.DrawLine(AxisPen, new Point(x, plot.Bottom), new Point(x, plot.Bottom + 4));
+            DrawText(ctx, dt.ToString("HH:mm", CultureInfo.InvariantCulture), x - 22, plot.Bottom + 6, LabelBrush);
         }
     }
 
