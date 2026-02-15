@@ -94,9 +94,7 @@ public sealed partial class CandleChartControl : Control
         if (_loadedOnce) return;
         _loadedOnce = true;
 
-        // ⚠️ adapte ton chemin si besoin
-        string inputDir = Path.Combine(AppContext.BaseDirectory, "data", "json");
-        string binDir = Path.Combine(inputDir, "..", "bin");
+        string binDir = Path.Combine("data", "bin");
 
         var bins = Directory.GetFiles(binDir, "*.bin");
         Array.Sort(bins, StringComparer.OrdinalIgnoreCase);
