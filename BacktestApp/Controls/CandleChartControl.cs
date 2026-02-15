@@ -10,6 +10,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Reflection.Metadata.Ecma335;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -344,6 +345,30 @@ public sealed class CandleChartControl : Control
         e.Handled = true;
     }
 
+    public void testBloc()
+    {
+        string binDir = Path.Combine("data", "bin");
+        if (!Directory.Exists(binDir))
+        {
+            Debug.WriteLine($"Fichier bin introuvable: {binDir}");
+            return;
+        }
+
+        var path = Path.Combine(binDir, "glbx-mdp3-20100606-20100612.ohlcv-1m.bin");
+
+        using var f = new MmapCandleFile(path);
+        Debug.WriteLine($"========>Count={f.Count}");
+
+        Span<byte> sym = stackalloc byte[MmapCandleFile.SymbolSize];
+
+        // Lire la dernière bougie
+        if (f.ReadAt(f.Count - 1, out var ts, out var o, out var h, out var l, out var c, out var v, sym))
+        {
+            var symbol = Encoding.ASCII.GetString(sym).TrimEnd('\0', ' ');
+            Debug.WriteLine($"========>ts={ts} O={o} H={h} L={l} C={c} V={v} sym='{symbol}'");
+        }
+    }
+
     // =========================
     // Render
     // =========================
@@ -351,6 +376,8 @@ public sealed class CandleChartControl : Control
     public override void Render(DrawingContext ctx)
     {
         base.Render(ctx);
+
+        testBloc();
 
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
