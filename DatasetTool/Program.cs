@@ -99,7 +99,7 @@ internal static class Program
     {
         bool enableConvert = false; // Passe à true pour convertire JSON->BIN
         int limitFiles = -1; // Limite lecture fichier bin
-        int limitCandles = 2; // Limite lecture bougies par fichier
+        int limitCandles = -1; // Limite lecture bougies par fichier
 
 
         string inputDir = args.Length > 0
@@ -152,6 +152,7 @@ internal static class Program
 
         long globalCount = 0;
         long localCount = 0;
+        int totalCandles = 0;
         var swGlobal = Stopwatch.StartNew();
 
         //Parcourir les fichiers binaires
@@ -174,10 +175,11 @@ internal static class Program
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
-                Console.WriteLine(
-                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+                //Console.WriteLine(
+                //    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
 
                 localCount++;
+                totalCandles++;
 
             });
 
@@ -194,6 +196,7 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine();
         Console.WriteLine($"Total Fichier: {globalCount}");
+        Console.WriteLine($"Total Bougies: {totalCandles}");
         Console.WriteLine();
         Console.WriteLine($"Temps total lecture: {swGlobal.ElapsedMilliseconds} ms");
 

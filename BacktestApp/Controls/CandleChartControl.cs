@@ -199,15 +199,13 @@ public sealed class CandleChartControl : Control
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
-                int quarter = GetQuarter(ts);
-                string contractName = quarterContracts[quarter];
+                //int quarter = GetQuarter(ts);
+                string contractName = quarterContracts[symbol];
 
+                Debug.WriteLine($"{contractName}");
 
                 Debug.WriteLine(
                     $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
-
-                Debug.WriteLine(
-                    $"Quarter: Q{quarter} | Contract: {contractName}");
 
                 localCount++;
 
