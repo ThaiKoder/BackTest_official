@@ -95,7 +95,7 @@ public sealed class CandleChartControl : Control
     private const double GapMaxPx = 4.0;
 
     private const int VisibleCount = 10;
-    private const int WindowCount = 40;
+    private const int WindowCount = 2000;
 
     // =========================
     // Interaction state
@@ -141,6 +141,9 @@ public sealed class CandleChartControl : Control
     private long _lastReloadStart = -1;
 
     private DispatcherTimer? _edgeTimer;
+
+    // Hover state (évite spam Debug)
+    private int _hoverLocalIndex = -1;
 
     public CandleChartControl()
     {
@@ -499,12 +502,20 @@ public sealed class CandleChartControl : Control
     {
         base.OnPointerMoved(e);
 
-        if (!_isPanning && !_isZoomingY) return;
         if (_windowLoaded <= 0) return;
 
         var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
-
         var p = e.GetPosition(this);
+
+        // --- Hover quand on ne pan/zoom pas ---
+        if (!_isPanning && !_isZoomingY)
+        {
+            int hit = HitTestCandleLocalIndex(p, plot);
+            DebugHoverCandleIfChanged(hit);
+            return;
+        }
+
+        // --- Pan/Zoom existant ---
         var dx = p.X - _lastPoint.X;
         var dy = p.Y - _lastPoint.Y;
         _lastPoint = p;
@@ -532,6 +543,7 @@ public sealed class CandleChartControl : Control
         InvalidateVisual();
         e.Handled = true;
     }
+
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
@@ -766,6 +778,67 @@ public sealed class CandleChartControl : Control
             ctx.DrawLine(axisPen, new Point(x, plot.Bottom), new Point(x, plot.Bottom + 4));
             DrawText(ctx, dt.ToString("HH:mm", CultureInfo.InvariantCulture), x - 22, plot.Bottom + 6, labelBrush);
         }
+    }
+
+    private static string FormatTsUtc(long tsNs)
+    {
+        long sec = tsNs / 1_000_000_000L;
+        long nsRemainder = tsNs - sec * 1_000_000_000L;
+        var dto = DateTimeOffset.FromUnixTimeSeconds(sec).ToUniversalTime();
+        // Si tu veux inclure les ms : dto.ToString("yyyy-MM-dd HH:mm:ss.fff", ...)
+        return $"{dto:yyyy-MM-dd HH:mm:ss} (+{nsRemainder}ns)";
+    }
+
+    private int HitTestCandleLocalIndex(Point mouse, Rect plot)
+    {
+        if (_windowLoaded <= 0) return -1;
+        if (!plot.Contains(mouse)) return -1;
+
+        // 1) temps sous la souris
+        double timeSec = ScreenXToWorldTime(mouse.X, plot);
+
+        // 2) bougie la plus proche en temps
+        int i = FindClosestIndexInWindow(timeSec);
+        if (i < 0) return -1;
+
+        // 3) check "sur la bougie" en X (hit-test simple)
+        double tSec = TsNsToEpochSeconds(_ts[i]);
+        double xCenter = WorldTimeToScreenX(tSec, plot);
+
+        double bodyW = ComputeBodyWidthWindow();
+        double halfW = bodyW * 0.5;
+
+        // tolérance pour être moins “strict”
+        const double Tol = 2.0;
+
+        if (Math.Abs(mouse.X - xCenter) <= (halfW + Tol))
+            return i;
+
+        return -1;
+    }
+
+    private void DebugHoverCandleIfChanged(int newHoverIndex)
+    {
+        if (newHoverIndex == _hoverLocalIndex) return; // pas de spam
+
+        _hoverLocalIndex = newHoverIndex;
+
+        if (newHoverIndex < 0) return;
+
+        long ts = _ts[newHoverIndex];
+        double o = _o[newHoverIndex] / PriceScale;
+        double h = _h[newHoverIndex] / PriceScale;
+        double l = _l[newHoverIndex] / PriceScale;
+        double c = _c[newHoverIndex] / PriceScale;
+        uint v = _v[newHoverIndex];
+
+        // Symbol: 1 byte (ton format actuel)
+        byte sym = _sym[newHoverIndex * MmapCandleFile.SymbolSize + 0];
+
+        Debug.WriteLine(
+            $"[HOVER] i={newHoverIndex} " +
+            $"date(UTC)={FormatTsUtc(ts)} " +
+            $"O={o} H={h} L={l} C={c} V={v} Sym={sym}");
     }
 
     // =========================
