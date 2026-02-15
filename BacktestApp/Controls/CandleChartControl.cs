@@ -30,7 +30,7 @@ public sealed partial class CandleChartControl : Control
     private const double GapMaxPx = 4.0;
 
     private const int VisibleCount = 10;
-    private const int WindowCount = 2000;
+    private const int WindowCount = 40; // divided by 4 to get candle in view
 
     // =========================
     // Interaction state
@@ -103,7 +103,7 @@ public sealed partial class CandleChartControl : Control
 
         if (bins.Length == 0)
         {
-            Debug.WriteLine("[CandleChartControl] Aucun .bin trouvé");
+            DebugMessage.Write("[CandleChartControl] Aucun .bin trouvé");
             return;
         }
 

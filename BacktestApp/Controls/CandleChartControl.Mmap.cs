@@ -29,7 +29,7 @@ public sealed partial class CandleChartControl
             long byteLen = fi.Length;
 
             if (byteLen <= 0 || (byteLen % CandleSize) != 0)
-                Debug.WriteLine($"[MmapCandleFile] WARNING: file size {byteLen} not multiple of {CandleSize}");
+                DebugMessage.Write($"[MmapCandleFile] WARNING: file size {byteLen} not multiple of {CandleSize}");
 
             Count = byteLen / CandleSize;
 
@@ -123,9 +123,7 @@ public sealed partial class CandleChartControl
         _windowLoaded = filled;
         _windowStart = startIndex;
 
-#if DEBUG
-        Debug.WriteLine($"windowLoaded={_windowLoaded} windowStart={_windowStart}");
-#endif
+        DebugMessage.Write($"windowLoaded={_windowLoaded} windowStart={_windowStart}");
     }
 
 

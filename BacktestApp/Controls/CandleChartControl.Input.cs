@@ -5,6 +5,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using System;
 using System.Diagnostics;
+using BacktestApp.Controls;
 
 
 namespace BacktestApp.Controls;
@@ -186,12 +187,10 @@ public sealed partial class CandleChartControl
         // Symbol: 1 byte (ton format actuel)
         byte sym = _sym[newHoverIndex * MmapCandleFile.SymbolSize + 0];
 
-#if DEBUG
-        Debug.WriteLine(
-            $"[HOVER] i={newHoverIndex} " +
+        DebugMessage.Write($"[HOVER] i={newHoverIndex} " +
             $"date(UTC)={FormatTsUtc(ts)} " +
             $"O={o} H={h} L={l} C={c} V={v} Sym={sym}");
-#endif
+
     }
 
 
