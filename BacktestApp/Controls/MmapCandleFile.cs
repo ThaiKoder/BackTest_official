@@ -10,6 +10,7 @@ namespace BacktestApp.Controls
     /// Layout: [Ts:Int64][O:Int64][H:Int64][L:Int64][C:Int64][V:UInt32][Symbol:10 bytes]
     /// Total = 54 bytes / record
     /// </summary>
+    /// 
     public sealed class MmapCandleFile : IDisposable
     {
         public const int CandleSize = 45;
@@ -18,6 +19,8 @@ namespace BacktestApp.Controls
         private readonly MemoryMappedFile _mmf;
         private readonly MemoryMappedViewAccessor _acc;
         private readonly long _count;
+
+        private readonly byte[] _symTmp = new byte[SymbolSize];
 
         public long Count => _count;
 
@@ -35,16 +38,14 @@ namespace BacktestApp.Controls
         }
 
         public bool ReadAt(long index,
-            out long ts, out long o, out long h, out long l, out long c, out uint v,
-            Span<byte> symbol10)
+                           out long ts, out long o, out long h, out long l, out long c, out uint v,
+                           Span<byte> sym10)
         {
-            if ((ulong)index >= (ulong)_count)
-            {
-                ts = o = h = l = c = 0;
-                v = 0;
-                symbol10.Clear();
-                return false;
-            }
+            ts = o = h = l = c = 0;
+            v = 0;
+
+            if ((ulong)index >= (ulong)Count) return false;
+            if (sym10.Length < SymbolSize) throw new ArgumentException("sym10 must be length >= 10");
 
             long off = index * CandleSize;
 
@@ -55,16 +56,11 @@ namespace BacktestApp.Controls
             c = _acc.ReadInt64(off + 32);
             v = _acc.ReadUInt32(off + 40);
 
-            // symbol 10 bytes (off+44..off+53)
-            if (symbol10.Length >= SymbolSize)
-            {
-                for (int i = 0; i < SymbolSize; i++)
-                    symbol10[i] = _acc.ReadByte(off + 44 + i);
-            }
+            _acc.ReadArray(off + 44, _symTmp, 0, SymbolSize);
+            _symTmp.AsSpan(0, SymbolSize).CopyTo(sym10);
 
             return true;
         }
-
         public void Dispose()
         {
             _acc.Dispose();

@@ -3,155 +3,153 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
-using DatasetTool;
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Reflection.Metadata.Ecma335;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
+using System.IO.MemoryMappedFiles;
 
 namespace BacktestApp.Controls;
 
+/// <summary>
+/// LEVEL 3 (corrigé):
+/// - MMAP
+/// - Fenêtre glissante (WindowCount)
+/// - Pan/Zoom
+/// - Reload automatique aux bords (basé sur index visible)
+/// - Clamp du centre après reload pour éviter "centre dans le futur" => plus de bougies visibles
+///
+/// </summary>
 public sealed class CandleChartControl : Control
 {
-    public readonly record struct Candle(
-        long TsNs,
-        long O,
-        long H,
-        long L,
-        long C,
-        uint V,
-        string Symbol
-    );
+    // =========================
+    // MMAP file reader
+    // =========================
+    public sealed class MmapCandleFile : IDisposable
+    {
+        // >>> FORMAT 45 bytes (ts,o,h,l,c,v + 1 byte symbol)
+        public const int SymbolSize = 1;
+        public const int CandleSize = 45;
 
-    // Prix: scale automatique (si tes prix sont en prix*1e9 => mets 1e9)
+        private readonly MemoryMappedFile _mmf;
+        private readonly MemoryMappedViewAccessor _acc;
+
+        public long Count { get; }
+
+        public MmapCandleFile(string path)
+        {
+            var fi = new FileInfo(path);
+            long byteLen = fi.Length;
+
+            if (byteLen <= 0 || (byteLen % CandleSize) != 0)
+                Debug.WriteLine($"[MmapCandleFile] WARNING: file size {byteLen} not multiple of {CandleSize}");
+
+            Count = byteLen / CandleSize;
+
+            _mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+            _acc = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+        }
+
+        public bool ReadAt(
+            long index,
+            out long ts, out long o, out long h, out long l, out long c, out uint v,
+            Span<byte> sym)
+        {
+            ts = o = h = l = c = 0;
+            v = 0;
+
+            if ((ulong)index >= (ulong)Count) return false;
+            if (sym.Length < SymbolSize) throw new ArgumentException("sym must be length >= SymbolSize");
+
+            long off = index * CandleSize;
+
+            ts = _acc.ReadInt64(off + 0);
+            o = _acc.ReadInt64(off + 8);
+            h = _acc.ReadInt64(off + 16);
+            l = _acc.ReadInt64(off + 24);
+            c = _acc.ReadInt64(off + 32);
+            v = _acc.ReadUInt32(off + 40);
+
+            // 1 byte symbol (offset 44)
+            sym[0] = _acc.ReadByte(off + 44);
+
+            return true;
+        }
+
+        public void Dispose()
+        {
+            _acc.Dispose();
+            _mmf.Dispose();
+        }
+    }
+
+    // =========================
+    // Params rendu
+    // =========================
     private const double PriceScale = 1.0;
 
-    // Bougies: largeur variable mais clampée
     private const double BodyMin = 3.0;
     private const double BodyMax = 250;
 
-    // Ne doivent jamais se toucher => gap min entre deux centres
     private const double GapMinPx = 2.0;
     private const double GapMaxPx = 4.0;
 
+    private const int VisibleCount = 10;
+    private const int WindowCount = 40;
+
+    // =========================
     // Interaction state
+    // =========================
     private bool _isPanning;
-    private Point _lastPoint;
-
-    // View state
-    private double _centerTimeSec;         // epoch seconds
-    private double _secondsPerPixel = 0.5; // zoom X (petit => zoom in)
-
-    // Y autoscale visible
-    private double _visibleMinPrice;
-    private double _visibleMaxPrice;
-
-    private double _centerPrice;
-    private double _pricePerPixel;
-
     private bool _isZoomingY;
+    private Point _lastPoint;
     private double _yZoomAnchorPrice;
     private double _yZoomAnchorT;
 
-    // Données
-    private readonly List<Candle> _candles = new();
+    // =========================
+    // View state
+    // =========================
+    private double _centerTimeSec;         // epoch seconds
+    private double _secondsPerPixel = 0.5; // zoom X
+    private double _centerPrice;
+    private double _pricePerPixel;
+    private double _visibleMinPrice;
+    private double _visibleMaxPrice;
 
-    // Chargement async (évite relire dans Render)
-    private CancellationTokenSource? _loadCts;
-    private bool _loadedOnce;
-
-
-    private const int VisibleCount = 10;
-    private const int WindowCount = 20;
-    private const int ReloadThreshold = 15;               // dépasse 15 => recharge
-    private const int PrefetchMargin = WindowCount - ReloadThreshold; // 5
-
-    private BacktestApp.Controls.MmapCandleFile? _file;
-    private long _fileCount;
-
-    private long _windowStart;    // index global du début fenêtre
-    private int _windowLoaded;    // <= 20
-
-    // Buffers pré-alloués (zéro alloc)
+    // =========================
+    // Window data (zéro alloc)
+    // =========================
     private readonly long[] _ts = new long[WindowCount];
     private readonly long[] _o = new long[WindowCount];
     private readonly long[] _h = new long[WindowCount];
     private readonly long[] _l = new long[WindowCount];
     private readonly long[] _c = new long[WindowCount];
     private readonly uint[] _v = new uint[WindowCount];
+    private readonly byte[] _sym = new byte[WindowCount * MmapCandleFile.SymbolSize];
 
-    // Si tu veux garder symbol sans string : stocke juste les 10 bytes
-    private readonly byte[] _sym = new byte[WindowCount * BacktestApp.Controls.MmapCandleFile.SymbolSize];
+    private MmapCandleFile? _file;
+    private long _fileCount;
+
+    private long _windowStart; // index global (dans le fichier) du début de lecture brute
+    private int _windowLoaded;
+
+    private bool _loadedOnce;
+    private bool _xInited;
+    private bool _yInited;
+
+    private bool _reloadInProgress;
+    private long _lastReloadStart = -1;
+
+    private DispatcherTimer? _edgeTimer;
 
     public CandleChartControl()
     {
         Focusable = true;
     }
 
-    private void InitViewFromWindow()
-    {
-        if (_windowLoaded <= 0)
-            return;
-
-        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        var plot = GetPlotRect(bounds);
-
-        if (plot.Width <= 0 || plot.Height <= 0)
-            return;
-
-        // ===== X =====
-
-        // intervalle temps entre 2 bougies
-        double dt = 1.0;
-        if (_windowLoaded >= 2)
-        {
-            dt = Math.Abs(
-                TsNsToEpochSeconds(_ts[1]) -
-                TsNsToEpochSeconds(_ts[0])
-            );
-            if (dt <= 0) dt = 1.0;
-        }
-
-        // afficher environ 10 visibles
-        _secondsPerPixel = (VisibleCount * dt) / plot.Width;
-
-        // centrer sur dernière bougie
-        double lastT = TsNsToEpochSeconds(_ts[_windowLoaded - 1]);
-        _centerTimeSec = lastT - (plot.Width * 0.5) * _secondsPerPixel;
-
-        // ===== Y =====
-
-        double minP = double.PositiveInfinity;
-        double maxP = double.NegativeInfinity;
-
-        for (int i = 0; i < _windowLoaded; i++)
-        {
-            double low = _l[i] / PriceScale;
-            double high = _h[i] / PriceScale;
-
-            if (low < minP) minP = low;
-            if (high > maxP) maxP = high;
-        }
-
-        if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP)
-        {
-            minP = 0;
-            maxP = 1;
-        }
-
-        _centerPrice = (minP + maxP) * 0.5;
-        _pricePerPixel = ((maxP - minP) * 1.20) / plot.Height; // +20% marge
-
-        if (_pricePerPixel <= 0)
-            _pricePerPixel = 1e-6;
-    }
-
+    // =========================
+    // Attach / detach
+    // =========================
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -159,21 +157,47 @@ public sealed class CandleChartControl : Control
         if (_loadedOnce) return;
         _loadedOnce = true;
 
+        // ⚠️ adapte ton chemin si besoin
         string inputDir = Path.Combine(AppContext.BaseDirectory, "data", "json");
         string binDir = Path.Combine(inputDir, "..", "bin");
         var bins = Directory.GetFiles(binDir, "*.bin");
         Array.Sort(bins, StringComparer.OrdinalIgnoreCase);
 
+        if (bins.Length == 0)
+        {
+            Debug.WriteLine("[CandleChartControl] Aucun .bin trouvé");
+            return;
+        }
+
         _file?.Dispose();
-        _file = new BacktestApp.Controls.MmapCandleFile(bins[^1]);
+        _file = new MmapCandleFile(bins[^1]);
         _fileCount = _file.Count;
 
-        int n = (int)Math.Min(WindowCount, _fileCount);
-        long start = Math.Max(0, _fileCount - n);
+        // charge vers la fin (on lit un peu avant car on filtre)
+        long start = Math.Max(0, _fileCount - 5000);
+        LoadWindow(start);
 
-        LoadWindow(start, n);
+        _xInited = false;
+        _yInited = false;
 
-        InitViewFromWindow();
+        // Timer "edge check" (reload même si on s'arrête au bord)
+        _edgeTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(40)
+        };
+
+        _edgeTimer.Tick += (_, __) =>
+        {
+            if (!IsVisible) return;
+            if (_windowLoaded <= 0) return;
+
+            var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
+            if (plot.Width <= 0 || plot.Height <= 0) return;
+
+            EnsureWindowAroundView(plot);
+        };
+
+        _edgeTimer.Start();
         InvalidateVisual();
     }
 
@@ -181,27 +205,51 @@ public sealed class CandleChartControl : Control
     {
         base.OnDetachedFromVisualTree(e);
 
-        _loadCts?.Cancel();
-        _loadCts?.Dispose();
-        _loadCts = null;
+        _edgeTimer?.Stop();
+        _edgeTimer = null;
+
+        _file?.Dispose();
+        _file = null;
     }
 
-    private void LoadWindow(long startIndex, int count)
+    // =========================
+    // Validation (filtre anti garbage)
+    // =========================
+    private static bool IsValidRecord(long ts, long o, long h, long l, long c)
+    {
+        // ts en ns depuis epoch (1970) : 2000..2100 large
+        const long MinTs = 946684800L * 1_000_000_000L;
+        const long MaxTs = 4102444800L * 1_000_000_000L;
+
+        if (ts < MinTs || ts > MaxTs) return false;
+
+        if (o <= 0 || h <= 0 || l <= 0 || c <= 0) return false;
+        if (h < l) return false;
+
+        const long MaxReasonable = 10_000_000_000_000L; // 1e13
+        if (o > MaxReasonable || h > MaxReasonable || l > MaxReasonable || c > MaxReasonable) return false;
+
+        return true;
+    }
+
+    // =========================
+    // Window loading (filtre invalides)
+    // =========================
+    private void LoadWindow(long startIndex)
     {
         if (_file is null) return;
 
-        // On va lire 2x plus large et ne garder que 1 sur 2
         long idx = startIndex;
         int filled = 0;
 
         while (filled < WindowCount && idx < _fileCount)
         {
-            Span<byte> sym10 = _sym.AsSpan(filled * MmapCandleFile.SymbolSize, MmapCandleFile.SymbolSize);
+            Span<byte> sym = _sym.AsSpan(filled * MmapCandleFile.SymbolSize, MmapCandleFile.SymbolSize);
 
-            _file.ReadAt(idx, out var ts, out var o, out var h, out var l, out var c, out var v, sym10);
+            if (!_file.ReadAt(idx, out var ts, out var o, out var h, out var l, out var c, out var v, sym))
+                break;
 
-            // Garde seulement les records "valides" (évite les -850000000)
-            if (o > 0 && h > 0 && l > 0 && c > 0)
+            if (IsValidRecord(ts, o, h, l, c))
             {
                 _ts[filled] = ts;
                 _o[filled] = o;
@@ -212,155 +260,201 @@ public sealed class CandleChartControl : Control
                 filled++;
             }
 
-            idx++; // avance d'un record
+            idx++;
         }
 
         _windowLoaded = filled;
         _windowStart = startIndex;
-    }
-    // =========================
-    // Lecture BIN -> _candles
-    // =========================
 
-    private async Task LoadCandlesFromBinAsync(CancellationToken ct)
-    {
-        try
-        {
-            string inputDir = Path.Combine(AppContext.BaseDirectory, "data", "json");
-            if (!Directory.Exists(inputDir))
-            {
-                Debug.WriteLine($"Dossier introuvable: {inputDir}");
-                return;
-            }
-
-            string binDir = Path.Combine(inputDir, "..", "bin");
-            if (!Directory.Exists(binDir))
-            {
-                Debug.WriteLine($"Dossier bin introuvable: {binDir}");
-                return;
-            }
-
-            var binFiles = Directory.GetFiles(binDir, "*.bin");
-            if (binFiles.Length == 0)
-            {
-                Debug.WriteLine("Aucun .bin trouvé.");
-                return;
-            }
-
-            // Lecture sur thread pool (ne bloque pas l'UI)
-            var sw = Stopwatch.StartNew();
-
-            var list = await Task.Run(() =>
-            {
-                var tmp = new List<Candle>(capacity: 1024);
-                long lastTs = 0;
-                int nbCdl = 0;
-                foreach (var binPath in binFiles)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    using var bin = new Binary(binPath);
-
-                    // IMPORTANT: Ici symbol est un byte/int selon ton Binary.ReadAllFast
-                    // Tu as un mapping quarterContracts dans ton code, à toi d'adapter.
-                    // Je mets Symbol en string minimal ("SYM") si tu n'as pas le nom.
-                    bin.ReadAllFast((ts, o, h, l, c, v, symbol) =>
-                    {
-                        // Option: si symbol est un index/byte, tu peux mapper vers string
-                        // Exemple:
-                        // string symStr = quarterContracts[symbol];
-                        // tmp.Add(new Candle(ts, o, h, l, c, v, symStr));
-
-
-                        //!!!!!!!
-                        if (ts != lastTs && nbCdl < 150)
-                        {
-                            tmp.Add(new Candle(ts, o, h, l, c, v, symbol.ToString(CultureInfo.InvariantCulture)));
-                            lastTs = ts;
-                            nbCdl++;
-                        }
-                    });
-                }
-
-                return tmp;
-            }, ct);
-
-            sw.Stop();
-            Debug.WriteLine($"Candles chargées: {list.Count} en {sw.ElapsedMilliseconds} ms");
-
-            // Applique côté UI
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                _candles.Clear();
-                _candles.AddRange(list);
-
-                InitViewFromCandles();
-                InvalidateVisual();
-            });
-        }
-        catch (OperationCanceledException)
-        {
-            // ok
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine(ex);
-        }
+        Debug.WriteLine($"windowLoaded={_windowLoaded} windowStart={_windowStart}");
+        for (int i = 0; i < Math.Min(_windowLoaded, 10); i++)
+            Debug.WriteLine($"i={i} ts={_ts[i]} o={_o[i]}");
     }
 
-    private void InitViewFromCandles()
+    // =========================
+    // Clamp centre X pour éviter "centre dans le futur"
+    // =========================
+    private void ClampCenterTimeToWindow(Rect plot)
     {
         if (_windowLoaded <= 0) return;
-        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        var plot = GetPlotRect(bounds);
 
-        // Si on n'a pas encore de taille (premier attach), on met un fallback
-        double plotW = plot.Width;
-        double plotH = plot.Height;
+        double firstT = TsNsToEpochSeconds(_ts[0]);
+        double lastT = TsNsToEpochSeconds(_ts[_windowLoaded - 1]);
 
-        int n = 150;
-        int start = _candles.Count - n;
+        double halfSpan = (plot.Width * 0.5) * _secondsPerPixel;
 
-        // ---- X: 60 dernières candles à l'écran ----
-        // On ancre à la dernière bougie (bord droit visuel)
-        var last = _candles[^1];
-        double lastT = TsNsToEpochSeconds(last.TsNs);
+        double minCenter = firstT + halfSpan;
+        double maxCenter = lastT - halfSpan;
 
-        double dtSec = EstimateDtSeconds();              // intervalle entre candles
-        double pitchPx = 10.0;                           // ~ pixels par candle (incluant gap)
-        pitchPx = Clamp(pitchPx, BodyMin + GapMinPx, BodyMax + GapMaxPx);
+        if (maxCenter < minCenter)
+        {
+            _centerTimeSec = 0.5 * (firstT + lastT);
+            return;
+        }
 
-        _secondsPerPixel = ((n - 1) * dtSec) / plotW;
-        ClampZoomToGapWindow();
-        _centerTimeSec = lastT - (plotW * 0.5) * _secondsPerPixel;
-        // ---- Y: centre & taille robustes (pondérés, outliers écrasés) ----
-        ComputeRobustCenterAndSize(
-            _candles,
-            start,
-            _candles.Count,
-            PriceScale,
-            out double centerY,
-            out double sizeY);
-
-        // Marge + sécurité
-        double paddedSize = Math.Max(1e-9, sizeY * 1.20); // +20% marge
-        _centerPrice = centerY;
-
-        // On veut une fenêtre verticale basée sur la taille typique
-        // Ici: on affiche ~ +/- (paddedSize * K) autour du centre
-        double K = 6.0; // ajuste: 4 = serré, 8 = large
-        double span = paddedSize * K;
-
-        // Convertit span prix -> pricePerPixel
-        _pricePerPixel = span / Math.Max(1.0, plotH);
-
-        _visibleMinPrice = _centerPrice - (plotH * _pricePerPixel) * 0.5;
-        _visibleMaxPrice = _centerPrice + (plotH * _pricePerPixel) * 0.5;
+        if (_centerTimeSec < minCenter) _centerTimeSec = minCenter;
+        if (_centerTimeSec > maxCenter) _centerTimeSec = maxCenter;
     }
-    // =========================
-    // Interaction
-    // =========================
 
+    // =========================
+    // Reload window (sans sauts) + clamp centre
+    // =========================
+    private void ReloadWindow(long newStart)
+    {
+        if (_file is null) return;
+        if (_reloadInProgress) return;
+
+        newStart = ClampLong(newStart, 0, Math.Max(0, _fileCount - 1));
+        if (newStart == _windowStart) return;
+        if (newStart == _lastReloadStart) return;
+        _lastReloadStart = newStart;
+
+        _reloadInProgress = true;
+
+        double keepCenterTime = _centerTimeSec;
+        double keepSecondsPerPixel = _secondsPerPixel;
+        double keepCenterPrice = _centerPrice;
+        double keepPricePerPixel = _pricePerPixel;
+
+        try
+        {
+            LoadWindow(newStart);
+
+            _centerTimeSec = keepCenterTime;
+            _secondsPerPixel = keepSecondsPerPixel;
+            _centerPrice = keepCenterPrice;
+            _pricePerPixel = keepPricePerPixel;
+
+            var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
+            if (plot.Width > 0) ClampCenterTimeToWindow(plot);
+
+            Debug.WriteLine($"ReloadWindow: newStart={newStart} windowStart={_windowStart} loaded={_windowLoaded}");
+
+            InvalidateVisual();
+
+        }
+        finally
+        {
+            _reloadInProgress = false;
+        }
+    }
+
+    // =========================
+    // Prefetch margin dynamique
+    // =========================
+    private int GetPrefetchMargin()
+    {
+        // 1/4 des données réellement chargées, clampé
+        return ClampInt(_windowLoaded / 4, 10, 60);
+    }
+
+    // =========================
+    // Reload automatique basé sur index visible (stable)
+    // =========================
+    private void EnsureWindowAroundView(Rect plot)
+    {
+        if (_file is null) return;
+        if (_windowLoaded <= 0) return;
+        if (_reloadInProgress) return;
+
+        // Clamp centre avant de calculer, sinon "centre dans le futur" => index bizarre
+        ClampCenterTimeToWindow(plot);
+
+        int centerLocal = FindClosestIndexInWindow(_centerTimeSec);
+        if (centerLocal < 0) return;
+
+        int margin = GetPrefetchMargin();
+
+        if (centerLocal < margin)
+        {
+            long centerGlobal = _windowStart + centerLocal;
+            long newStart = centerGlobal - (WindowCount / 2);
+            ReloadWindow(newStart);
+            return;
+        }
+
+        if (centerLocal > (_windowLoaded - 1 - margin))
+        {
+            long centerGlobal = _windowStart + centerLocal;
+            long newStart = centerGlobal - (WindowCount / 2);
+            ReloadWindow(newStart);
+        }
+    }
+
+    private int FindClosestIndexInWindow(double targetTimeSec)
+    {
+        if (_windowLoaded <= 0) return -1;
+
+        // binaire sur temps (suppose trié)
+        int lo = 0, hi = _windowLoaded - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >> 1;
+            double t = TsNsToEpochSeconds(_ts[mid]);
+
+            if (t < targetTimeSec) lo = mid + 1;
+            else if (t > targetTimeSec) hi = mid - 1;
+            else return mid;
+        }
+
+        int i0 = ClampInt(lo, 0, _windowLoaded - 1);
+        int i1 = ClampInt(lo - 1, 0, _windowLoaded - 1);
+
+        double d0 = Math.Abs(TsNsToEpochSeconds(_ts[i0]) - targetTimeSec);
+        double d1 = Math.Abs(TsNsToEpochSeconds(_ts[i1]) - targetTimeSec);
+
+        return d0 < d1 ? i0 : i1;
+    }
+
+    // =========================
+    // Init X/Y (une seule fois)
+    // =========================
+    private void InitViewXFromWindow(Rect plot)
+    {
+        if (_windowLoaded <= 0) return;
+
+        double dt = EstimateDtSecondsWindow();
+        if (dt <= 0) dt = 60;
+
+        _secondsPerPixel = (VisibleCount * dt) / Math.Max(1.0, plot.Width);
+
+        // centre sur la dernière bougie chargée
+        double lastT = TsNsToEpochSeconds(_ts[_windowLoaded - 1]);
+        _centerTimeSec = lastT - (plot.Width * 0.5) * _secondsPerPixel;
+
+        ClampZoomToGapWindow();
+        ClampCenterTimeToWindow(plot);
+    }
+
+    private void AutoScaleYFromWindow(Rect plot)
+    {
+        if (_windowLoaded <= 0) return;
+        if (plot.Height <= 0) return;
+
+        double minP = double.PositiveInfinity;
+        double maxP = double.NegativeInfinity;
+
+        for (int i = 0; i < _windowLoaded; i++)
+        {
+            double low = _l[i] / PriceScale;
+            double high = _h[i] / PriceScale;
+            if (low < minP) minP = low;
+            if (high > maxP) maxP = high;
+        }
+
+        if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP)
+        {
+            minP = 0; maxP = 1;
+        }
+
+        _centerPrice = (minP + maxP) * 0.5;
+        _pricePerPixel = ((maxP - minP) * 1.20) / plot.Height;
+        if (_pricePerPixel <= 0) _pricePerPixel = 1e-6;
+    }
+
+    // =========================
+    // Pointer interaction
+    // =========================
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
@@ -368,12 +462,9 @@ public sealed class CandleChartControl : Control
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
 
-        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        var plot = GetPlotRect(bounds);
-
+        var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
         var p = e.GetPosition(this);
 
-        // Zone axe Y = tout ce qui est à gauche du plot
         bool inYAxis = p.X < plot.Left && p.Y >= plot.Top && p.Y <= plot.Bottom;
 
         _lastPoint = p;
@@ -381,7 +472,7 @@ public sealed class CandleChartControl : Control
         if (inYAxis)
         {
             _isZoomingY = true;
-            _yZoomAnchorT = (plot.Bottom - p.Y) / plot.Height; // 0..1
+            _yZoomAnchorT = (plot.Bottom - p.Y) / plot.Height;
             _yZoomAnchorPrice = YToPrice(p.Y, plot);
 
             e.Pointer.Capture(this);
@@ -391,6 +482,7 @@ public sealed class CandleChartControl : Control
 
         _isPanning = true;
         e.Pointer.Capture(this);
+        e.Handled = true;
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -399,16 +491,18 @@ public sealed class CandleChartControl : Control
 
         _isPanning = false;
         _isZoomingY = false;
-
         e.Pointer.Capture(null);
+        e.Handled = true;
     }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
 
-        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        var plot = GetPlotRect(bounds);
+        if (!_isPanning && !_isZoomingY) return;
+        if (_windowLoaded <= 0) return;
+
+        var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
 
         var p = e.GetPosition(this);
         var dx = p.X - _lastPoint.X;
@@ -423,7 +517,6 @@ public sealed class CandleChartControl : Control
             double newSpan = plot.Height * newPPP;
             _pricePerPixel = newPPP;
 
-            // preserve anchor price
             _centerPrice = _yZoomAnchorPrice - (_yZoomAnchorT - 0.5) * newSpan;
 
             InvalidateVisual();
@@ -431,25 +524,22 @@ public sealed class CandleChartControl : Control
             return;
         }
 
-        if (_isPanning)
-        {
-            _centerTimeSec -= dx * _secondsPerPixel;
-            _centerPrice += dy * _pricePerPixel;
+        _centerTimeSec -= dx * _secondsPerPixel;
+        _centerPrice += dy * _pricePerPixel;
 
-            InvalidateVisual();
-            e.Handled = true;
-        }
+        EnsureWindowAroundView(plot);
+
+        InvalidateVisual();
+        e.Handled = true;
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         base.OnPointerWheelChanged(e);
 
-        if (Bounds.Width <= 0 || Bounds.Height <= 0) return;
-        if (_candles.Count == 0) return;
+        if (_windowLoaded <= 0) return;
 
-        var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
-        var plot = GetPlotRect(bounds);
+        var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
         if (plot.Width <= 0 || plot.Height <= 0) return;
 
         var mouse = e.GetPosition(this);
@@ -467,55 +557,18 @@ public sealed class CandleChartControl : Control
         double t1 = ScreenXToWorldTime(anchor.X, plot);
         _centerTimeSec += (t0 - t1);
 
+        EnsureWindowAroundView(plot);
+
         InvalidateVisual();
         e.Handled = true;
-    }
-
-    public void testBloc()
-    {
-        string binDir = Path.Combine("data", "bin");
-        if (!Directory.Exists(binDir))
-        {
-            Debug.WriteLine($"Fichier bin introuvable: {binDir}");
-            return;
-        }
-
-        var path = Path.Combine(binDir, "glbx-mdp3-20100606-20100612.ohlcv-1m.bin");
-
-        using var f = new MmapCandleFile(path);
-        Debug.WriteLine($"========>Count={f.Count}");
-
-        Span<byte> sym = stackalloc byte[MmapCandleFile.SymbolSize];
-
-        // Lire la dernière bougie
-        if (f.ReadAt(f.Count - 1, out var ts, out var o, out var h, out var l, out var c, out var v, sym))
-        {
-            var symbol = Encoding.ASCII.GetString(sym).TrimEnd('\0', ' ');
-            Debug.WriteLine($"========>ts={ts} O={o} H={h} L={l} C={c} V={v} sym='{symbol}'");
-        }
-    }
-
-
-    private double ComputeBodyWidthWindow(Rect plot)
-    {
-        double dtSec = EstimateDtSecondsWindow();
-        double pxPerCandle = dtSec / _secondsPerPixel;
-
-        double pxClamped = Clamp(pxPerCandle, GapMinPx + 1.0, GapMaxPx + BodyMax);
-        double desired = pxClamped * 0.70;
-        double maxAllowedByGap = Math.Max(1.0, pxClamped - GapMinPx);
-
-        return Clamp(desired, BodyMin, Math.Min(BodyMax, maxAllowedByGap));
     }
 
     // =========================
     // Render
     // =========================
-
     public override void Render(DrawingContext ctx)
     {
         base.Render(ctx);
-
 
         var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
@@ -523,39 +576,26 @@ public sealed class CandleChartControl : Control
         var plot = GetPlotRect(bounds);
         if (plot.Width <= 0 || plot.Height <= 0) return;
 
-        if (_windowLoaded > 0 && (_secondsPerPixel <= 0 || _pricePerPixel <= 0))
-        {
-            InitViewFromWindow();
-        }
-
         // background
         var bg = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
         var axisBg = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
         ctx.FillRectangle(bg, bounds);
 
-        if (_windowLoaded <= 0)
-            return;
-        // largeur bougie
-        double bodyW = ComputeBodyWidthWindow(plot);
+        if (_windowLoaded <= 0) return;
 
-        // init Y si pas prêt
-        if (_pricePerPixel <= 0)
+        if (!_xInited)
         {
-            double minP = double.PositiveInfinity, maxP = double.NegativeInfinity;
-            for (int i = 0; i < _candles.Count; i++)
-            {
-                double l = _candles[i].L / PriceScale;
-                double h = _candles[i].H / PriceScale;
-                if (l < minP) minP = l;
-                if (h > maxP) maxP = h;
-            }
-            if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP) { minP = 0; maxP = 1; }
-
-            _centerPrice = (minP + maxP) / 2.0;
-            _pricePerPixel = ((maxP - minP) * 1.10) / plot.Height;
-            _visibleMinPrice = minP;
-            _visibleMaxPrice = maxP;
+            InitViewXFromWindow(plot);
+            _xInited = true;
         }
+        if (!_yInited)
+        {
+            AutoScaleYFromWindow(plot);
+            _yInited = true;
+        }
+
+        // IMPORTANT: clamp à chaque frame (sécurité anti “centre dans le futur”)
+        ClampCenterTimeToWindow(plot);
 
         // range Y courant
         double visiblePriceRange = plot.Height * _pricePerPixel;
@@ -563,18 +603,14 @@ public sealed class CandleChartControl : Control
         _visibleMaxPrice = _centerPrice + visiblePriceRange / 2.0;
         if (_visibleMaxPrice <= _visibleMinPrice) _visibleMaxPrice = _visibleMinPrice + 1e-9;
 
-        // pens/brushes
-        var gridPen = new Pen(new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A)), 1);
+        double bodyW = ComputeBodyWidthWindow();
+
         var axisPen = new Pen(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), 1);
         var labelBrush = new SolidColorBrush(Color.FromRgb(0xDD, 0xDD, 0xDD));
         var wickPen = new Pen(new SolidColorBrush(Color.FromRgb(0xD0, 0xD0, 0xD0)), 1);
         var upBrush = new SolidColorBrush(Color.FromRgb(0x2E, 0xC2, 0x7E));
         var dnBrush = new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x5A));
 
-        // axes profile
-        var axisProfile = AxisProfile.FromBodyWidth(bodyW);
-
-        // BOUGIES -> CLIP AU PLOT
         using (ctx.PushClip(plot))
         {
             for (int i = 0; i < _windowLoaded; i++)
@@ -609,63 +645,37 @@ public sealed class CandleChartControl : Control
             }
         }
 
-        // FOND DES AXES (au-dessus des bougies)
         var leftAxisRect = new Rect(0, 0, plot.Left, bounds.Height);
         ctx.FillRectangle(axisBg, leftAxisRect);
 
         var bottomAxisRect = new Rect(0, plot.Bottom, bounds.Width, bounds.Height - plot.Bottom);
         ctx.FillRectangle(axisBg, bottomAxisRect);
 
-        // axes lines
         ctx.DrawLine(axisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
         ctx.DrawLine(axisPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
 
-        DrawYAxis(ctx, plot, gridPen, axisPen, labelBrush, axisProfile);
-        DrawXAxis(ctx, plot, gridPen, axisPen, labelBrush, axisProfile);
+        DrawYAxisSimple(ctx, plot, axisPen, labelBrush);
+        DrawXAxisSimple(ctx, plot, axisPen, labelBrush);
+
+        //Debug.WriteLine($"dt={EstimateDtSecondsWindow()} spp={_secondsPerPixel} center={_centerTimeSec} loaded={_windowLoaded} plotW={plot.Width}");
+        //Debug.WriteLine($"firstT={TsNsToEpochSeconds(_ts[0])} lastT={TsNsToEpochSeconds(_ts[_windowLoaded - 1])}");
     }
 
     // =========================
-    // Zoom clamp
+    // Helpers: X/Y mapping
     // =========================
-
-    private double EstimateDtSecondsWindow()
+    private double WorldTimeToScreenX(double timeSec, Rect plot)
     {
-        if (_windowLoaded < 2) return 1.0;
-        double a = TsNsToEpochSeconds(_ts[0]);
-        double b = TsNsToEpochSeconds(_ts[1]);
-        double dt = Math.Abs(b - a);
-        return Math.Max(1e-6, dt);
+        double dxSec = timeSec - _centerTimeSec;
+        double dxPx = dxSec / _secondsPerPixel;
+        return (plot.Left + plot.Width / 2) + dxPx;
     }
 
-    private void ClampZoomToGapWindow()
+    private double ScreenXToWorldTime(double x, Rect plot)
     {
-        double dtSec = EstimateDtSecondsWindow();
-
-        double minPitch = BodyMin + GapMinPx;
-        double maxPitch = BodyMax + GapMaxPx;
-
-        double minSecondsPerPixel = dtSec / maxPitch;
-        double maxSecondsPerPixel = dtSec / minPitch;
-
-        _secondsPerPixel = Clamp(_secondsPerPixel, minSecondsPerPixel, maxSecondsPerPixel);
+        double dxPx = x - (plot.Left + plot.Width / 2);
+        return _centerTimeSec + dxPx * _secondsPerPixel;
     }
-
-    private void ClampZoomToGap()
-    {
-        double dtSec = EstimateDtSeconds();
-
-        double minPitch = BodyMin + GapMinPx;
-        double maxPitch = BodyMax + GapMaxPx;
-
-        double minSecondsPerPixel = dtSec / maxPitch;
-        double maxSecondsPerPixel = dtSec / minPitch;
-
-        _secondsPerPixel = Clamp(_secondsPerPixel, minSecondsPerPixel, maxSecondsPerPixel);
-    }
-
-    // =========================
-    // Y helpers
-    // =========================
 
     private double PriceToY(double price, Rect plot)
     {
@@ -681,217 +691,86 @@ public sealed class CandleChartControl : Control
     }
 
     // =========================
-    // X mapping (zoom / pan)
+    // Zoom clamp & widths
     // =========================
-
-    private double WorldTimeToScreenX(double timeSec, Rect plot)
+    private double EstimateDtSecondsWindow()
     {
-        double dxSec = timeSec - _centerTimeSec;
-        double dxPx = dxSec / _secondsPerPixel;
-        return (plot.Left + plot.Width / 2) + dxPx;
+        if (_windowLoaded < 2) return 60.0;
+
+        long t0 = _ts[0];
+        for (int i = 1; i < _windowLoaded; i++)
+        {
+            if (_ts[i] != t0)
+            {
+                double a = TsNsToEpochSeconds(t0);
+                double b = TsNsToEpochSeconds(_ts[i]);
+                return Math.Max(1e-6, Math.Abs(b - a));
+            }
+        }
+        return 60.0;
     }
 
-    private double ScreenXToWorldTime(double x, Rect plot)
+    private void ClampZoomToGapWindow()
     {
-        double dxPx = x - (plot.Left + plot.Width / 2);
-        return _centerTimeSec + dxPx * _secondsPerPixel;
+        double dtSec = EstimateDtSecondsWindow();
+
+        double minPitch = BodyMin + GapMinPx;
+        double maxPitch = BodyMax + GapMaxPx;
+
+        double minSecondsPerPixel = dtSec / maxPitch;
+        double maxSecondsPerPixel = dtSec / minPitch;
+
+        _secondsPerPixel = Clamp(_secondsPerPixel, minSecondsPerPixel, maxSecondsPerPixel);
     }
 
-    // =========================
-    // Candle width (no-touch)
-    // =========================
-
-    private double ComputeBodyWidth(Rect plot)
+    private double ComputeBodyWidthWindow()
     {
-        double dtSec = EstimateDtSeconds();
-
+        double dtSec = EstimateDtSecondsWindow();
         double pxPerCandle = dtSec / _secondsPerPixel;
 
         double pxClamped = Clamp(pxPerCandle, GapMinPx + 1.0, GapMaxPx + BodyMax);
-
         double desired = pxClamped * 0.70;
-
         double maxAllowedByGap = Math.Max(1.0, pxClamped - GapMinPx);
 
         return Clamp(desired, BodyMin, Math.Min(BodyMax, maxAllowedByGap));
     }
 
-    private double EstimateDtSeconds()
-    {
-        if (_candles.Count < 2) return 1.0;
-        long a = _candles[0].TsNs;
-        long b = _candles[1].TsNs;
-        double dt = Math.Abs(TsNsToEpochSeconds(b) - TsNsToEpochSeconds(a));
-        return Math.Max(1e-6, dt);
-    }
-
     // =========================
-    // Axes adaptatifs
+    // Axes (simple)
     // =========================
-
-    private static void ComputeRobustCenterAndSize(
-    List<Candle> candles,
-    int start,
-    int end,
-    double priceScale,
-    out double robustCenter,
-    out double robustSize)
+    private void DrawYAxisSimple(DrawingContext ctx, Rect plot, Pen axisPen, IBrush labelBrush)
     {
-        int n = Math.Max(0, end - start);
-        if (n <= 0)
+        int ticks = 6;
+        for (int i = 0; i <= ticks; i++)
         {
-            robustCenter = 0;
-            robustSize = 1;
-            return;
-        }
-
-        // On extrait centres & tailles
-        var centers = new double[n];
-        var sizes = new double[n];
-
-        for (int i = 0; i < n; i++)
-        {
-            var c = candles[start + i];
-            double h = c.H / priceScale;
-            double l = c.L / priceScale;
-
-            double center = 0.5 * (h + l);
-            double size = Math.Max(1e-12, h - l);
-
-            centers[i] = center;
-            sizes[i] = size;
-        }
-
-        // Centre robuste: médiane + MAD
-        double medC = MedianInPlace(centers);
-        double madC = MAD(centers, medC);
-        if (madC <= 1e-12) madC = StdFallback(centers, medC);
-
-        // Taille robuste: médiane + MAD
-        double medS = MedianInPlace(sizes);
-        double madS = MAD(sizes, medS);
-        if (madS <= 1e-12) madS = StdFallback(sizes, medS);
-
-        // Pondération: gaussienne autour de la médiane
-        // k = “tolérance” (plus petit => plus agressif sur les outliers)
-        const double k = 3.0;
-
-        double sumWC = 0, sumWCx = 0;
-        double sumWS = 0, sumWSx = 0;
-
-        for (int i = 0; i < n; i++)
-        {
-            double zc = (centers[i] - medC) / (k * madC);
-            double wc = Math.Exp(-0.5 * zc * zc);
-
-            sumWC += wc;
-            sumWCx += wc * centers[i];
-
-            double zs = (sizes[i] - medS) / (k * madS);
-            double ws = Math.Exp(-0.5 * zs * zs);
-
-            sumWS += ws;
-            sumWSx += ws * sizes[i];
-        }
-
-        robustCenter = (sumWC > 1e-12) ? (sumWCx / sumWC) : medC;
-        robustSize = (sumWS > 1e-12) ? (sumWSx / sumWS) : medS;
-
-        // Sécurité
-        if (!double.IsFinite(robustCenter)) robustCenter = medC;
-        if (!double.IsFinite(robustSize) || robustSize <= 0) robustSize = medS > 0 ? medS : 1;
-    }
-
-    private static double MAD(double[] xs, double median)
-    {
-        // MAD = median(|x - median|)
-        var dev = new double[xs.Length];
-        for (int i = 0; i < xs.Length; i++)
-            dev[i] = Math.Abs(xs[i] - median);
-
-        double mad = MedianInPlace(dev);
-
-        // Optionnel: rendre MAD comparable à sigma (normal) => * 1.4826
-        return mad * 1.4826;
-    }
-
-    private static double MedianInPlace(double[] xs)
-    {
-        // Copie locale si tu veux préserver l'ordre; ici on assume ok de trier
-        Array.Sort(xs);
-        int n = xs.Length;
-        if (n == 0) return 0;
-        int mid = n / 2;
-        return (n % 2 == 1) ? xs[mid] : 0.5 * (xs[mid - 1] + xs[mid]);
-    }
-
-    private static double StdFallback(double[] xs, double mean)
-    {
-        // fallback “sigma” si MAD=0 (toutes valeurs égales)
-        double s = 0;
-        for (int i = 0; i < xs.Length; i++)
-        {
-            double d = xs[i] - mean;
-            s += d * d;
-        }
-        return Math.Sqrt(s / Math.Max(1, xs.Length));
-    }
-
-    private readonly record struct AxisProfile(int YTicks, int XTicks, string TimeFormat, string PriceFormat)
-    {
-        public static AxisProfile FromBodyWidth(double bodyW)
-        {
-            double t = (bodyW - BodyMin) / Math.Max(1e-9, (BodyMax - BodyMin));
-
-            int yTicks = LerpInt(7, 4, t);
-            int xTicks = LerpInt(7, 4, t);
-
-            string timeFmt = t < 0.33 ? "HH:mm:ss" : "HH:mm";
-            string priceFmt = t < 0.33 ? "0.#####"
-                           : t < 0.66 ? "0.###"
-                                      : "0.##";
-
-            return new AxisProfile(yTicks, xTicks, timeFmt, priceFmt);
-        }
-
-        private static int LerpInt(int a, int b, double t)
-            => (int)Math.Round(a + (b - a) * Clamp01(t));
-
-        private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
-    }
-
-    private void DrawYAxis(DrawingContext ctx, Rect plot, Pen gridPen, Pen axisPen, IBrush labelBrush, AxisProfile p)
-    {
-        for (int i = 0; i <= p.YTicks; i++)
-        {
-            double tt = i / (double)p.YTicks;
+            double tt = i / (double)ticks;
             double y = plot.Bottom - tt * plot.Height;
             double price = YToPrice(y, plot);
 
             ctx.DrawLine(axisPen, new Point(plot.Left - 4, y), new Point(plot.Left, y));
-            DrawText(ctx, price.ToString(p.PriceFormat, CultureInfo.InvariantCulture), 6, y - 8, labelBrush);
+            DrawText(ctx, price.ToString("0.###", CultureInfo.InvariantCulture), 6, y - 8, labelBrush);
         }
     }
 
-    private void DrawXAxis(DrawingContext ctx, Rect plot, Pen gridPen, Pen axisPen, IBrush labelBrush, AxisProfile p)
+    private void DrawXAxisSimple(DrawingContext ctx, Rect plot, Pen axisPen, IBrush labelBrush)
     {
-        for (int i = 0; i <= p.XTicks; i++)
+        int ticks = 6;
+        for (int i = 0; i <= ticks; i++)
         {
-            double tt = i / (double)p.XTicks;
+            double tt = i / (double)ticks;
             double x = plot.Left + tt * plot.Width;
 
             double timeSec = ScreenXToWorldTime(x, plot);
             var dt = DateTimeOffset.FromUnixTimeSeconds((long)timeSec).UtcDateTime;
 
             ctx.DrawLine(axisPen, new Point(x, plot.Bottom), new Point(x, plot.Bottom + 4));
-            DrawText(ctx, dt.ToString(p.TimeFormat, CultureInfo.InvariantCulture), x - 28, plot.Bottom + 6, labelBrush);
+            DrawText(ctx, dt.ToString("HH:mm", CultureInfo.InvariantCulture), x - 22, plot.Bottom + 6, labelBrush);
         }
     }
 
     // =========================
     // Layout + misc
     // =========================
-
     private static Rect GetPlotRect(Rect bounds)
     {
         double leftAxisW = 70;
@@ -908,8 +787,9 @@ public sealed class CandleChartControl : Control
 
     private static double TsNsToEpochSeconds(long tsNs) => tsNs / 1_000_000_000.0;
 
-    private static double Clamp(double v, double min, double max)
-        => v < min ? min : (v > max ? max : v);
+    private static double Clamp(double v, double min, double max) => v < min ? min : (v > max ? max : v);
+    private static int ClampInt(int v, int min, int max) => v < min ? min : (v > max ? max : v);
+    private static long ClampLong(long v, long min, long max) => v < min ? min : (v > max ? max : v);
 
     private static void DrawText(DrawingContext ctx, string text, double x, double y, IBrush brush)
     {
