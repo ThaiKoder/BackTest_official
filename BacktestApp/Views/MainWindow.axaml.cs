@@ -44,6 +44,19 @@ namespace BacktestApp.Views
         }
 
 
+        public void Click_Next(object sender, RoutedEventArgs args)
+        {
+            if (_chart == null)
+            {
+                DebugMessage.Write("Chart pas encore attaché (dock/onglet pas actif / recréation)");
+                return;
+            }
+
+            _chart.loadNext();
+        }
+
+
+
         private void Header_PointerPressed(object? sender, PointerPressedEventArgs e)
         {
             BeginMoveDrag(e);

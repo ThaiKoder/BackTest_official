@@ -93,6 +93,8 @@
 								<StackPanel Spacing="8">
 									<TextBlock Foreground="White" Text="tools" />
 									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="Click_Previous" Cursor="Hand">PREV</Button>
+									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="Click_Next" Cursor="Hand">NEXT</Button>
+
 								</StackPanel>
 							</Border>
 						</dock:Tool>

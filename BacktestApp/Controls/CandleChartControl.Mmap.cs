@@ -98,6 +98,7 @@ public sealed partial class CandleChartControl
 
         long idx = startIndex;
         int filled = 0;
+        int isInvalidCount = 0;
 
         while (filled < WindowCount && idx < _fileCount)
         {
@@ -115,13 +116,17 @@ public sealed partial class CandleChartControl
                 _c[filled] = c;
                 _v[filled] = v;
                 filled++;
+                DebugMessage.Write($"Loaded record idx={idx} ts={ts} o={o} h={h} l={l} c={c} v={v} sym={(char)sym[0]}");
             }
+            else { isInvalidCount++; }
 
             idx++;
         }
 
         _windowLoaded = filled;
         _windowStart = startIndex;
+
+        DebugMessage.Write($"Loaded window: start={startIndex} loaded={_windowLoaded} invalid skipped={isInvalidCount}");
 
         DebugMessage.Write($"windowLoaded={_windowLoaded} windowStart={_windowStart}");
     }
@@ -224,6 +229,12 @@ public sealed partial class CandleChartControl
     {
         DebugMessage.Write("previous clicked");
         CursorPrev();
+    }
+
+    public void loadNext()
+    {
+        DebugMessage.Write("next clicked");
+        CursorNext();
     }
 
     public void CursorPrev()
