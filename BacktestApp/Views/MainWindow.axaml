@@ -90,7 +90,10 @@
 					<dock:ToolDock Proportion="0.05" Alignment="Left">
 						<dock:Tool Id="tools" Title="tools">
 							<Border Background="{DynamicResource Color.Background}" Padding="12">
-								<TextBlock Foreground="White" Text="tools" />
+								<StackPanel Spacing="8">
+									<TextBlock Foreground="White" Text="tools" />
+									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="ClickHandler" Cursor="Hand">Press Me!</Button>
+								</StackPanel>
 							</Border>
 						</dock:Tool>
 					</dock:ToolDock>

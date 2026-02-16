@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Tmds.DBus.Protocol;
+using BacktestApp.Controls;
 
 namespace BacktestApp.Views
 {
@@ -28,6 +30,11 @@ namespace BacktestApp.Views
                 : WindowState.Maximized;
         }
 
+        public void ClickHandler(object sender, RoutedEventArgs args)
+        {
+            var Text = "Button clicked!";
+            DebugMessage.Write(Text);
+        }
         private void Close_Click(object? sender, RoutedEventArgs e)
         {
             Close();
