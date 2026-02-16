@@ -92,7 +92,7 @@
 							<Border Background="{DynamicResource Color.Background}" Padding="12">
 								<StackPanel Spacing="8">
 									<TextBlock Foreground="White" Text="tools" />
-									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="ClickHandler" Cursor="Hand">Press Me!</Button>
+									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="Click_Previous" Cursor="Hand">PREV</Button>
 								</StackPanel>
 							</Border>
 						</dock:Tool>
@@ -107,9 +107,7 @@
 						<Border Background="{DynamicResource Color.Background}" Padding="0">
 							<Grid>
 								<!-- ChartControl Skia -->
-								<controls:CandleChartControl x:Name="SkiaChart"
-															AttachedToVisualTree="Chart_Attached"
-															DetachedFromVisualTree="Chart_Detached"/>							
+								<controls:CandleChartControl x:Name="SkiaChart" AttachedToVisualTree="Chart_Attached" DetachedFromVisualTree="Chart_Detached"/>							
 							</Grid>
 						</Border>
 					</dock:Document>

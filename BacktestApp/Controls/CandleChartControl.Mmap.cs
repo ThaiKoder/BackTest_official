@@ -220,9 +220,10 @@ public sealed partial class CandleChartControl
     private const int CursorStep = WindowCount / 2;
 
 
-    public void testButton()
+    public void loadPrevious()
     {
-        DebugMessage.Write("testButton clicked");
+        DebugMessage.Write("previous clicked");
+        CursorPrev();
     }
 
     public void CursorPrev()

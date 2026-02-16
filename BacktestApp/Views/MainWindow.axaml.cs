@@ -32,7 +32,7 @@ namespace BacktestApp.Views
         }
 
 
-        public void ClickHandler(object sender, RoutedEventArgs args)
+        public void Click_Previous(object sender, RoutedEventArgs args)
         {
             if (_chart == null)
             {
@@ -40,7 +40,7 @@ namespace BacktestApp.Views
                 return;
             }
 
-            _chart.testButton();
+            _chart.loadPrevious();
         }
 
 
