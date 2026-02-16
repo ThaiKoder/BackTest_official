@@ -107,7 +107,9 @@
 						<Border Background="{DynamicResource Color.Background}" Padding="0">
 							<Grid>
 								<!-- ChartControl Skia -->
-								<controls:CandleChartControl />
+								<controls:CandleChartControl x:Name="SkiaChart"
+															AttachedToVisualTree="Chart_Attached"
+															DetachedFromVisualTree="Chart_Detached"/>							
 							</Grid>
 						</Border>
 					</dock:Document>

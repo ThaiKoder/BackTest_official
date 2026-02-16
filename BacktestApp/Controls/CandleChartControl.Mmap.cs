@@ -213,4 +213,59 @@ public sealed partial class CandleChartControl
 
         return d0 < d1 ? i0 : i1;
     }
+
+
+    // Taille du "pas" quand tu vas au précédent/suivant.
+    // Ex: 1/2 fenêtre => overlap => navigation fluide
+    private const int CursorStep = WindowCount / 2;
+
+
+    public void testButton()
+    {
+        DebugMessage.Write("testButton clicked");
+    }
+
+    public void CursorPrev()
+    {
+        if (_file is null) return;
+        if (_windowLoaded <= 0) return;
+        if (_reloadInProgress) return;
+
+        int centerLocal = FindClosestIndexInWindow(_centerTimeSec);
+        if (centerLocal < 0) centerLocal = _windowLoaded / 2;
+
+        long centerGlobal = _windowStart + centerLocal;
+
+        long newCenterGlobal = centerGlobal - CursorStep;
+        long newStart = newCenterGlobal - (WindowCount / 2);
+
+        ReloadWindow(ClampStart(newStart));
+        InvalidateVisual();
+    }
+
+    public void CursorNext()
+    {
+        if (_file is null) return;
+        if (_windowLoaded <= 0) return;
+        if (_reloadInProgress) return;
+
+        int centerLocal = FindClosestIndexInWindow(_centerTimeSec);
+        if (centerLocal < 0) centerLocal = _windowLoaded / 2;
+
+        long centerGlobal = _windowStart + centerLocal;
+
+        long newCenterGlobal = centerGlobal + CursorStep;
+        long newStart = newCenterGlobal - (WindowCount / 2);
+
+        ReloadWindow(ClampStart(newStart));
+        InvalidateVisual();
+    }
+
+    private long ClampStart(long start)
+    {
+        long maxStart = Math.Max(0, _fileCount - WindowCount);
+        if (start < 0) return 0;
+        if (start > maxStart) return maxStart;
+        return start;
+    }
 }
