@@ -95,53 +95,52 @@ internal static class Program
 
 
     //LECTURE OK
-    static async Task<int> Main(string[] args)
+    static async Task<int> ReadJC(string[] args)
     {
         bool enableConvert = false; // Passe à true pour convertire JSON->BIN
         int limitFiles = -1; // Limite lecture fichier bin
         int limitCandles = -1; // Limite lecture bougies par fichier
 
 
-        string inputDir = args.Length > 0
-            ? args[0]
-            : Path.Combine(AppContext.BaseDirectory, "data", "json");
+        //string inputDir = Path.Combine(AppContext.BaseDirectory, "data", "json");
 
-        if (!Directory.Exists(inputDir))
-        {
-            Console.WriteLine($"Dossier introuvable: {inputDir}");
-            return 1;
-        }
+        //if (!Directory.Exists(inputDir))
+        //{
+        //    Console.WriteLine($"Dossier introuvable: {inputDir}");
+        //    return 1;
+        //}
 
 
-        var jsonFiles = Directory.GetFiles(inputDir, "*.json");
+        //var jsonFiles = Directory.GetFiles(inputDir, "*.json");
 
-        if (jsonFiles.Length == 0)
-        {
-            Console.WriteLine("Aucun JSON trouvé.");
-            return 0;
-        }
+        //if (jsonFiles.Length == 0)
+        //{
+        //    Console.WriteLine("Aucun JSON trouvé.");
+        //    return 0;
+        //}
 
-        string binDir = Path.Combine(inputDir, "..", "bin");
-        Directory.CreateDirectory(binDir);
-        if (enableConvert)
-        {
-            Console.WriteLine("=== CONVERSION JSON -> BIN ===");
-            Console.WriteLine($"Conversion de {jsonFiles.Length} fichier(s)...");
+        //string binDir = Path.Combine(inputDir, "..", "bin");
+        //Directory.CreateDirectory(binDir);
+        //if (enableConvert)
+        //{
+        //    Console.WriteLine("=== CONVERSION JSON -> BIN ===");
+        //    Console.WriteLine($"Conversion de {jsonFiles.Length} fichier(s)...");
 
-            foreach (var json in jsonFiles)
-            {
-                string binPath = Path.Combine(
-                    binDir,
-                    Path.GetFileNameWithoutExtension(json) + ".bin");
+        //    foreach (var json in jsonFiles)
+        //    {
+        //        string binPath = Path.Combine(
+        //            binDir,
+        //            Path.GetFileNameWithoutExtension(json) + ".bin");
 
-                Console.WriteLine($"→ {Path.GetFileName(json)}");
+        //        Console.WriteLine($"→ {Path.GetFileName(json)}");
 
-                await JsonToBinaryConverter.ConvertJsonAsync(json, binPath);
-            }
+        //        await JsonToBinaryConverter.ConvertJsonAsync(json, binPath);
+        //    }
 
-            Console.WriteLine();
-        }
+        //    Console.WriteLine();
+        //}
         Console.WriteLine("=== TEST LECTURE ===");
+        string binDir = Path.Combine("data", "bin");
         var binFiles = Directory.GetFiles(binDir, "*.bin");
 
         if (binFiles.Length == 0)
@@ -175,16 +174,16 @@ internal static class Program
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
-                //Console.WriteLine(
-                //    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+                Console.WriteLine(
+                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
 
                 localCount++;
                 totalCandles++;
 
             });
 
-            //Console.WriteLine();
-            //Console.WriteLine();
+            Console.WriteLine();
+            Console.WriteLine();
             localCount = 0;
             globalCount++;
 
@@ -202,7 +201,6 @@ internal static class Program
 
         return 0;
     }
-
 
 
 
@@ -296,104 +294,112 @@ internal static class Program
 
 
     //Conversion des fichiers JSON en BIN
-    //static async Task<int> Main(string[] args)
-    //{
-    //    string inputDir = args.Length > 0 ? args[0] : InputDir;
-    //    bool recursive = args.Length > 1
-    //        ? bool.TryParse(args[1], out var r) && r
-    //        : IncludeSubDirectories;
+    static async Task<int> WriteJC(string[] args)
+    {
+        string inputDir = args.Length > 0 ? args[0] : InputDir;
+        bool recursive = args.Length > 1
+            ? bool.TryParse(args[1], out var r) && r
+            : IncludeSubDirectories;
 
-    //    if (!Directory.Exists(inputDir))
-    //    {
-    //        Console.Error.WriteLine($"Dossier introuvable: {inputDir}");
-    //        return 1;
-    //    }
+        if (!Directory.Exists(inputDir))
+        {
+            Console.Error.WriteLine($"Dossier introuvable: {inputDir}");
+            return 1;
+        }
 
-    //    var opt = new EnumerationOptions
-    //    {
-    //        RecurseSubdirectories = recursive,
-    //        IgnoreInaccessible = true,
-    //        ReturnSpecialDirectories = false
-    //    };
+        var opt = new EnumerationOptions
+        {
+            RecurseSubdirectories = recursive,
+            IgnoreInaccessible = true,
+            ReturnSpecialDirectories = false
+        };
 
-    //    var jsonFiles = Directory.EnumerateFiles(inputDir, "*.json", opt).ToList();
+        var jsonFiles = Directory.EnumerateFiles(inputDir, "*.json", opt).ToList();
 
-    //    if (jsonFiles.Count == 0)
-    //    {
-    //        Console.WriteLine("Aucun fichier .json trouvé.");
-    //        return 0;
-    //    }
+        if (jsonFiles.Count == 0)
+        {
+            Console.WriteLine("Aucun fichier .json trouvé.");
+            return 0;
+        }
 
-    //    Console.WriteLine($"Trouvé {jsonFiles.Count} fichier(s) .json dans {Path.GetFullPath(inputDir)}");
-    //    Console.WriteLine($"Parallelisme: {MaxParallel}");
+        Console.WriteLine($"Trouvé {jsonFiles.Count} fichier(s) .json dans {Path.GetFullPath(inputDir)}");
+        Console.WriteLine($"Parallelisme: {MaxParallel}");
 
-    //    // Bin à côté de inputDir (…/inputDir/../bin)
-    //    var binDir = Path.GetFullPath(Path.Combine(inputDir, "..", "bin"));
-    //    Directory.CreateDirectory(binDir);
+        // Bin à côté de inputDir (…/inputDir/../bin)
+        var binDir = Path.GetFullPath(Path.Combine(inputDir, "..", "bin"));
+        Directory.CreateDirectory(binDir);
 
-    //    var cts = new CancellationTokenSource();
-    //    Console.CancelKeyPress += (_, e) =>
-    //    {
-    //        e.Cancel = true;
-    //        cts.Cancel();
-    //        Console.WriteLine("Annulation demandée (Ctrl+C)...");
-    //    };
+        var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cts.Cancel();
+            Console.WriteLine("Annulation demandée (Ctrl+C)...");
+        };
 
-    //    long ok = 0, skipped = 0, failed = 0;
-    //    var swAll = Stopwatch.StartNew();
+        long ok = 0, skipped = 0, failed = 0;
+        var swAll = Stopwatch.StartNew();
 
-    //    await Parallel.ForEachAsync(
-    //        jsonFiles,
-    //        new ParallelOptions { MaxDegreeOfParallelism = MaxParallel, CancellationToken = cts.Token },
-    //        async (jsonPath, ct) =>
-    //        {
-    //            var binPath = Path.Combine(
-    //                binDir,
-    //                Path.GetFileNameWithoutExtension(jsonPath) + ".bin"
-    //            );
+        await Parallel.ForEachAsync(
+            jsonFiles,
+            new ParallelOptions { MaxDegreeOfParallelism = MaxParallel, CancellationToken = cts.Token },
+            async (jsonPath, ct) =>
+            {
+                var binPath = Path.Combine(
+                    binDir,
+                    Path.GetFileNameWithoutExtension(jsonPath) + ".bin"
+                );
 
-    //            try
-    //            {
-    //                // Skip si déjà converti
-    //                if (File.Exists(binPath))
-    //                {
-    //                    Interlocked.Increment(ref skipped);
-    //                    return;
-    //                }
+                try
+                {
+                    // Skip si déjà converti
+                    if (File.Exists(binPath))
+                    {
+                        Interlocked.Increment(ref skipped);
+                        return;
+                    }
 
-    //                // (optionnel) Skip si json vide
-    //                var fi = new FileInfo(jsonPath);
-    //                if (fi.Length == 0)
-    //                {
-    //                    Interlocked.Increment(ref skipped);
-    //                    return;
-    //                }
+                    // (optionnel) Skip si json vide
+                    var fi = new FileInfo(jsonPath);
+                    if (fi.Length == 0)
+                    {
+                        Interlocked.Increment(ref skipped);
+                        return;
+                    }
 
-    //                var sw = Stopwatch.StartNew();
-    //                await JsonToBinaryConverter.ConvertJsonAsync(jsonPath, binPath, ct);
-    //                sw.Stop();
+                    var sw = Stopwatch.StartNew();
+                    await JsonToBinaryConverter.ConvertJsonAsync(jsonPath, binPath, ct);
+                    sw.Stop();
 
-    //                Interlocked.Increment(ref ok);
-    //                Console.WriteLine($"OK  {Path.GetFileName(jsonPath)} -> {Path.GetFileName(binPath)}  ({sw.Elapsed.TotalSeconds:F1}s)");
-    //            }
-    //            catch (OperationCanceledException)
-    //            {
-    //                // Annulation => ne pas compter comme failed
-    //            }
-    //            catch (Exception ex)
-    //            {
-    //                Interlocked.Increment(ref failed);
-    //                Console.Error.WriteLine($"FAIL {jsonPath}\n     {ex.GetType().Name}: {ex.Message}");
-    //                try { if (File.Exists(binPath)) File.Delete(binPath); } catch { /* ignore */ }
-    //            }
-    //        });
+                    Interlocked.Increment(ref ok);
+                    Console.WriteLine($"OK  {Path.GetFileName(jsonPath)} -> {Path.GetFileName(binPath)}  ({sw.Elapsed.TotalSeconds:F1}s)");
+                }
+                catch (OperationCanceledException)
+                {
+                    // Annulation => ne pas compter comme failed
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref failed);
+                    Console.Error.WriteLine($"FAIL {jsonPath}\n     {ex.GetType().Name}: {ex.Message}");
+                    try { if (File.Exists(binPath)) File.Delete(binPath); } catch { /* ignore */ }
+                }
+            });
 
-    //    swAll.Stop();
+        swAll.Stop();
 
-    //    Console.WriteLine();
-    //    Console.WriteLine($"Terminé en {swAll.Elapsed.TotalSeconds:F1}s | OK={ok} | Skip={skipped} | Fail={failed}");
+        Console.WriteLine();
+        Console.WriteLine($"Terminé en {swAll.Elapsed.TotalSeconds:F1}s | OK={ok} | Skip={skipped} | Fail={failed}");
 
-    //    return failed == 0 ? 0 : 2;
-    //}
+        return failed == 0 ? 0 : 2;
+    }
+
+
+
+    public static async Task<int> Main(string[] args)
+    {
+        return await ReadJC(args);
+    }
+
 
 }
