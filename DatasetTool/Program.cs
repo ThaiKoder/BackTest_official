@@ -359,7 +359,6 @@ internal static class Program
                         return;
                     }
 
-                    // (optionnel) Skip si json vide
                     var fi = new FileInfo(jsonPath);
                     if (fi.Length == 0)
                     {
@@ -398,6 +397,7 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        //return await WriteJC(args);
         return await ReadJC(args);
     }
 

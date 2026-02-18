@@ -57,7 +57,7 @@ namespace DatasetTool
     public static class JsonToBinaryConverter
     {
 
-
+        private static long _lastTsNs = -1;
 
         internal static Candle1m ReadCandle(ref Utf8JsonReader reader)
         {
@@ -304,7 +304,8 @@ namespace DatasetTool
                     //IF OK
                     int tmpGetQuarter = GetQuarter(candle.TsNs);
 
-                    if (tmpGetQuarter == candle.SymbolCode)
+                    //if (tmpGetQuarter == candle.SymbolCode)
+                    if (candle.TsNs != _lastTsNs)
                     {
                         Debug.WriteLine($"======>{tmpGetQuarter}");
 
@@ -315,6 +316,8 @@ namespace DatasetTool
                         bw.Write(candle.C);
                         bw.Write(candle.V);
                         bw.Write(candle.SymbolCode);
+
+                        _lastTsNs = candle.TsNs;
                     }
 
 
