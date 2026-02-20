@@ -305,8 +305,8 @@ namespace DatasetTool
                     int tmpGetQuarter = GetQuarter(candle.TsNs);
 
                     //if (tmpGetQuarter == candle.SymbolCode)
-                    if (candle.TsNs != _lastTsNs)
-                    {
+                    //if (candle.TsNs != _lastTsNs)
+                    //{
                         Debug.WriteLine($"======>{tmpGetQuarter}");
 
                         bw.Write(candle.TsNs);
@@ -318,7 +318,7 @@ namespace DatasetTool
                         bw.Write(candle.SymbolCode);
 
                         _lastTsNs = candle.TsNs;
-                    }
+                    //}
 
 
                 }

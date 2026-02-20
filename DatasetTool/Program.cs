@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace DatasetTool;
 
@@ -153,6 +154,18 @@ internal static class Program
         long localCount = 0;
         int totalCandles = 0;
         var swGlobal = Stopwatch.StartNew();
+        int C1 = 0, C2 = 0, C3 = 0, C4 = 0;
+
+        var contractsByDate = new Dictionary<long, List<byte>>();
+        long currentDate = -1;
+        List<byte>? currentList = null;
+
+        const int CONTINUATION_LIMIT = 60*23*5; 
+        const int BREAK_LIMIT = 60*23*30;
+
+
+        int nbDates = 0;
+        long lastDate = -1;
 
         //Parcourir les fichiers binaires
         foreach (var binPath in binFiles)
@@ -174,20 +187,154 @@ internal static class Program
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
-                Console.WriteLine(
-                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+                if (ts != currentDate)
+                {
+                    currentDate = ts;
+                    currentList = new List<byte>();
+                    contractsByDate[ts] = currentList;
+                }
+
+                currentList!.Add(symbol);
+                //Console.WriteLine(
+                //    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
 
                 localCount++;
                 totalCandles++;
 
             });
 
-            Console.WriteLine();
-            Console.WriteLine();
+            //Console.WriteLine();
+            //Console.WriteLine();
             localCount = 0;
             globalCount++;
 
         }
+
+        foreach (var kvp in contractsByDate)
+        {
+            long date = kvp.Key;
+            List<byte> contracts = kvp.Value;
+       
+            if (date != lastDate)
+            {
+                nbDates++;
+                lastDate = date;
+            }
+            //Console.Write($"{DateTime.UnixEpoch.AddTicks(date / 100)} => [");
+            //Console.Write(string.Join(",", contracts));
+            //Console.WriteLine("]");
+        }
+        Console.WriteLine($"Total dates uniques: {nbDates}");
+
+        // Compteurs de continuation par contrat
+        var contCounts = new Dictionary<byte, int>();
+
+        // Quand un contrat a atteint le seuil, on ne le recompte plus
+        var locked = new HashSet<byte>();
+
+        int breakCount = 0;
+
+        // Pour détecter "pas de contrat détecté vs date précédente"
+        HashSet<byte>? prevUnique = null;
+
+        // Si ton dictionnaire n'est pas garanti trié, trie les dates :
+        var dates = new List<long>(contractsByDate.Keys);
+        dates.Sort();
+
+        int[] continuation = new int[5];
+        int[] coupure = new int[5];
+
+        Console.WriteLine("=== ANALYSE CONTINUITY / BREAK ===");
+        byte lastContContract = 0;
+        bool hasLastContContract = false;
+
+        bool hasShowBreak = false;
+        bool[] hasShowContinuation = new bool[5];
+        foreach (var date in dates)
+        {
+            List<byte> contracts = contractsByDate[date];
+
+            // ===== CONTINUATION :
+            foreach (var c in contracts)
+            {
+                if (continuation[c] < CONTINUATION_LIMIT)
+                {
+
+                    continuation[c]++;
+
+                } 
+
+                if (!hasShowContinuation[c] && continuation[c] >= CONTINUATION_LIMIT)
+                {
+                    Console.WriteLine($"[CONT] {DateTime.UnixEpoch.AddTicks(date / 100)} => {c} contrats");
+                    hasShowContinuation[c] = true;
+                }
+
+            }
+
+            // Affichage brut (comme ton exemple)
+            //Console.Write($"{date} => [");
+            //Console.Write(string.Join(",", contracts));
+            //Console.WriteLine("]");
+
+            // Unique set pour la date courante (pour comparer avec la précédente)
+            var currUnique = new HashSet<byte>(contracts);
+
+            // ===== COUPURE : aucun contrat commun avec la date précédente =====
+            if (prevUnique != null)
+            {
+                bool hasContinuation = false;
+
+                for (byte cc = 1; cc < 5; cc++)
+                {
+                    if (!prevUnique.Contains(cc))
+                    {
+                        if (coupure[cc] >= BREAK_LIMIT && hasShowContinuation[cc])
+                        {
+                            Console.WriteLine($"[BREAK] {DateTime.UnixEpoch.AddTicks(date / 100)} Contrat {cc} atteint {coupure[cc]} coupures. Stop counting for this contract.");
+
+                            coupure[cc] = 0; // reset
+                            continuation[cc] = 0; // reset
+                            hasShowContinuation[cc] = false;
+                            hasShowBreak = true;
+                        } 
+
+                        if (coupure[cc] < BREAK_LIMIT)
+                        {
+                            coupure[cc]++;
+                        }
+
+                    }
+                }
+
+ 
+            }
+
+            // ===== CONTINUATION : compter occurrences par symbole (byte) =====
+            // Ici on compte chaque occurrence de 'contracts' (pas seulement unique).
+            //foreach (var c in contracts)
+            //{
+            //    if (locked.Contains(c))
+            //        continue;
+
+            //    if (!contCounts.TryGetValue(c, out int v))
+            //        v = 0;
+
+            //    v++;
+            //    contCounts[c] = v;
+
+            //    if (v >= CONTINUATION_LIMIT)
+            //    {
+            //        Console.WriteLine($"[CONT] {DateTime.UnixEpoch.AddTicks(date / 100)} Contrat {c} atteint {v} occurrences. Stop counting for this contract.");
+            //        locked.Add(c); // ne plus compter ce contrat
+            //    }
+            //}
+
+            prevUnique = currUnique;
+        }
+
+        Console.WriteLine($"{continuation[1]}");
+        Console.WriteLine($"{DateTime.UnixEpoch.AddTicks(1375236060000000000 / 100)} -  {DateTime.UnixEpoch.AddTicks(1275861600000000000 / 100)}");
 
         swGlobal.Stop();
         Console.WriteLine();
