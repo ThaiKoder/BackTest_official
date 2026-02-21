@@ -161,7 +161,7 @@ internal static class Program
         List<byte>? currentList = null;
 
         const int CONTINUATION_LIMIT = 60 * 23 * 5;
-        const int BREAK_LIMIT = 60 * 23 * 1;
+        const int BREAK_LIMIT = 30 ;
 
 
         int nbDates = 0;
@@ -272,7 +272,7 @@ internal static class Program
 
                 if (!hasShowContinuation[c] && continuation[c] >= CONTINUATION_LIMIT)
                 {
-                    Console.WriteLine($"[CONT] {DateTime.UnixEpoch.AddTicks(firstContDate[c] / 100)} => contract number: {firstContContract[c]}");
+                    //Console.WriteLine($"[CONT] {DateTime.UnixEpoch.AddTicks(firstContDate[c] / 100)} => contract number: {firstContContract[c]}");
                     hasShowContinuation[c] = true;
                 }
 
@@ -297,8 +297,8 @@ internal static class Program
                     {
                         if (coupure[cc] >= BREAK_LIMIT && hasShowContinuation[cc])
                         {
-                            Console.WriteLine($"[BREAK] {DateTime.UnixEpoch.AddTicks(lastContDate[cc] / 100)} Contrat {lastContContract[cc]} atteint {coupure[cc]} coupures. Stop counting for this contract.");
-
+                            //Console.WriteLine($"[BREAK] {DateTime.UnixEpoch.AddTicks(lastContDate[cc] / 100)} Contrat {lastContContract[cc]} atteint {coupure[cc]} coupures. Stop counting for this contract.");
+                            Console.WriteLine($"===> {DateTime.UnixEpoch.AddTicks(firstContDate[cc] / 100)} - {DateTime.UnixEpoch.AddTicks(lastContDate[cc] / 100)}| Contrat {firstContContract[cc]}");
                             coupure[cc] = 0; // reset
                             continuation[cc] = 0; // reset
                             hasShowContinuation[cc] = false;
