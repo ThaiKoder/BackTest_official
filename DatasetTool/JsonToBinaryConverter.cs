@@ -156,9 +156,9 @@ namespace DatasetTool
 
 
 
-        public static int GetQuarter(long dateTicks)
+        public static byte GetQuarter(long dateTicks)
         {
-            DateTime date = new DateTime(dateTicks);
+            DateTime date = DateTime.UnixEpoch.AddTicks(dateTicks / 100);
             int year = date.Year;
 
             // Fonction pour trouver le 3e vendredi d'un mois
@@ -198,7 +198,7 @@ namespace DatasetTool
                 return 3;
             if (date <= Q4Date)
                 return 4;
-            return 1;
+            return 0;
         }
 
 

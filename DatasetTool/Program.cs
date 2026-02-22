@@ -254,99 +254,32 @@ internal static class Program
         long[] lastContDate = new long[5];
         byte[] lastContContract = new byte[5];
 
+        var quarterContracts = new Dictionary<int, string>
+           {
+               { 1, "NQH" },
+               { 2, "NQM" },
+               { 3, "NQU" },
+               { 4, "NQZ" },
 
-        foreach (var date in dates)
+            };
+
+        int missingCount = 0;
+        int presentCount = 0;
+
+        foreach (var kvp in contractsByDate)
         {
-            List<byte> contracts = contractsByDate[date];
+            byte myQuarter = JsonToBinaryConverter.GetQuarter(kvp.Key);
+            bool isInContract = kvp.Value.Contains(myQuarter);
 
-            // ===== CONTINUATION :
-            foreach (var c in contracts)
-            {
-                if (continuation[c] < CONTINUATION_LIMIT)
-                {
-                    if (firstContDate[c] == 0) firstContDate[c] = date;
-                    if (firstContContract[c] == 0) firstContContract[c] = c;
-                    continuation[c]++;
-
-                } 
-
-                if (!hasShowContinuation[c] && continuation[c] >= CONTINUATION_LIMIT)
-                {
-                    //Console.WriteLine($"[CONT] {DateTime.UnixEpoch.AddTicks(firstContDate[c] / 100)} => contract number: {firstContContract[c]}");
-                    hasShowContinuation[c] = true;
-                }
-
-            }
-
-            // Affichage brut (comme ton exemple)
-            //Console.Write($"{date} => [");
-            //Console.Write(string.Join(",", contracts));
-            //Console.WriteLine("]");
-
-            // Unique set pour la date courante (pour comparer avec la précédente)
-            var currUnique = new HashSet<byte>(contracts);
-
-            // ===== COUPURE : aucun contrat commun avec la date précédente =====
-            if (prevUnique != null)
-            {
-                bool hasContinuation = false;
-
-                for (byte cc = 1; cc < 5; cc++)
-                {
-                    if (!prevUnique.Contains(cc))
-                    {
-                        if (coupure[cc] >= BREAK_LIMIT && hasShowContinuation[cc])
-                        {
-                            //Console.WriteLine($"[BREAK] {DateTime.UnixEpoch.AddTicks(lastContDate[cc] / 100)} Contrat {lastContContract[cc]} atteint {coupure[cc]} coupures. Stop counting for this contract.");
-                            Console.WriteLine($"===> {DateTime.UnixEpoch.AddTicks(firstContDate[cc] / 100)} - {DateTime.UnixEpoch.AddTicks(lastContDate[cc] / 100)}| Contrat {firstContContract[cc]}");
-                            coupure[cc] = 0; // reset
-                            continuation[cc] = 0; // reset
-                            hasShowContinuation[cc] = false;
-                            hasShowBreak = true;
-                            firstContDate[cc] = 0;
-                            firstContContract[cc] = 0;
-                            lastContContract[cc] = 0;
-                            lastContDate[cc] = 0;
-                        } 
-
-                        if (coupure[cc] < BREAK_LIMIT)
-                        {
-                            coupure[cc]++;
-                            if (lastContContract[cc] == 0) lastContContract[cc] = cc;
-                            if (lastContDate[cc] == 0) lastContDate[cc] = date;
-                        }
-
-                    }
-                }
-
- 
-            }
-
-            // ===== CONTINUATION : compter occurrences par symbole (byte) =====
-            // Ici on compte chaque occurrence de 'contracts' (pas seulement unique).
-            //foreach (var c in contracts)
-            //{
-            //    if (locked.Contains(c))
-            //        continue;
-
-            //    if (!contCounts.TryGetValue(c, out int v))
-            //        v = 0;
-
-            //    v++;
-            //    contCounts[c] = v;
-
-            //    if (v >= CONTINUATION_LIMIT)
-            //    {
-            //        Console.WriteLine($"[CONT] {DateTime.UnixEpoch.AddTicks(date / 100)} Contrat {c} atteint {v} occurrences. Stop counting for this contract.");
-            //        locked.Add(c); // ne plus compter ce contrat
-            //    }
-            //}
-
-            prevUnique = currUnique;
+            if (!isInContract)
+                missingCount++;
+            else
+                presentCount++;
         }
 
-        Console.WriteLine($"{continuation[1]}");
-        Console.WriteLine($"{DateTime.UnixEpoch.AddTicks(1375236060000000000 / 100)} -  {DateTime.UnixEpoch.AddTicks(1275861600000000000 / 100)}");
+        Console.WriteLine($"Total de bougies: { (missingCount + presentCount)}");
+        Console.WriteLine($"Total dates avec contrat manquant: {missingCount}");
+        Console.WriteLine($"Total dates avec contrat présent: {presentCount}");
 
         swGlobal.Stop();
         Console.WriteLine();
