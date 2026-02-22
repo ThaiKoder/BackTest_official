@@ -195,8 +195,8 @@ internal static class Program
                 }
 
                 currentList!.Add(symbol);
-                //Console.WriteLine(
-                //    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
+                Console.WriteLine(
+                    $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
 
                 localCount++;
                 totalCandles++;
@@ -386,7 +386,162 @@ internal static class Program
 
 
     //Conversion des fichiers JSON en BIN
-    static async Task<int> WriteJC(string[] args)
+    //static async Task<int> WriteJC(string[] args)
+    //{
+    //    string inputDir = args.Length > 0 ? args[0] : InputDir;
+    //    bool recursive = args.Length > 1
+    //        ? bool.TryParse(args[1], out var r) && r
+    //        : IncludeSubDirectories;
+
+    //    if (!Directory.Exists(inputDir))
+    //    {
+    //        Console.Error.WriteLine($"Dossier introuvable: {inputDir}");
+    //        return 1;
+    //    }
+
+    //    var opt = new EnumerationOptions
+    //    {
+    //        RecurseSubdirectories = recursive,
+    //        IgnoreInaccessible = true,
+    //        ReturnSpecialDirectories = false
+    //    };
+
+    //    var jsonFiles = Directory.EnumerateFiles(inputDir, "*.json", opt).ToList();
+
+    //    if (jsonFiles.Count == 0)
+    //    {
+    //        Console.WriteLine("Aucun fichier .json trouvé.");
+    //        return 0;
+    //    }
+
+    //    Console.WriteLine($"Trouvé {jsonFiles.Count} fichier(s) .json dans {Path.GetFullPath(inputDir)}");
+    //    Console.WriteLine($"Parallelisme: {MaxParallel}");
+
+    //    // Bin à côté de inputDir (…/inputDir/../bin)
+    //    var binDir = Path.GetFullPath(Path.Combine(inputDir, "..", "bin"));
+    //    Directory.CreateDirectory(binDir);
+
+    //    var cts = new CancellationTokenSource();
+    //    Console.CancelKeyPress += (_, e) =>
+    //    {
+    //        e.Cancel = true;
+    //        cts.Cancel();
+    //        Console.WriteLine("Annulation demandée (Ctrl+C)...");
+    //    };
+
+    //    long ok = 0, skipped = 0, failed = 0;
+    //    var swAll = Stopwatch.StartNew();
+
+    //    await Parallel.ForEachAsync(
+    //        jsonFiles,
+    //        new ParallelOptions { MaxDegreeOfParallelism = MaxParallel, CancellationToken = cts.Token },
+    //        async (jsonPath, ct) =>
+    //        {
+    //            var binPath = Path.Combine(
+    //                binDir,
+    //                Path.GetFileNameWithoutExtension(jsonPath) + ".bin"
+    //            );
+
+    //            try
+    //            {
+    //                // Skip si déjà converti
+    //                if (File.Exists(binPath))
+    //                {
+    //                    Interlocked.Increment(ref skipped);
+    //                    return;
+    //                }
+
+    //                var fi = new FileInfo(jsonPath);
+    //                if (fi.Length == 0)
+    //                {
+    //                    Interlocked.Increment(ref skipped);
+    //                    return;
+    //                }
+
+    //                var sw = Stopwatch.StartNew();
+    //                await JsonToBinaryConverter.ConvertJsonAsync(jsonPath, binPath, ct);
+    //                sw.Stop();
+
+    //                Interlocked.Increment(ref ok);
+    //                Console.WriteLine($"OK  {Path.GetFileName(jsonPath)} -> {Path.GetFileName(binPath)}  ({sw.Elapsed.TotalSeconds:F1}s)");
+    //            }
+    //            catch (OperationCanceledException)
+    //            {
+    //                // Annulation => ne pas compter comme failed
+    //            }
+    //            catch (Exception ex)
+    //            {
+    //                Interlocked.Increment(ref failed);
+    //                Console.Error.WriteLine($"FAIL {jsonPath}\n     {ex.GetType().Name}: {ex.Message}");
+    //                try { if (File.Exists(binPath)) File.Delete(binPath); } catch { /* ignore */ }
+    //            }
+    //        });
+
+    //    swAll.Stop();
+
+    //    Console.WriteLine();
+    //    Console.WriteLine($"Terminé en {swAll.Elapsed.TotalSeconds:F1}s | OK={ok} | Skip={skipped} | Fail={failed}");
+
+    //    return failed == 0 ? 0 : 2;
+    //}
+
+
+
+    public static async Task<int> WriteJCMain(string[] args)
+    {
+        // Exemples d'usage:
+        //  - (par défaut)         Program.exe <inputDir> <recursive>
+        //  - commande explicite   Program.exe writejc <inputDir> <recursive>
+
+        if (args.Length > 0 && (args[0].Equals("-h", StringComparison.OrdinalIgnoreCase)
+                             || args[0].Equals("--help", StringComparison.OrdinalIgnoreCase)))
+        {
+            PrintHelp();
+            return 0;
+        }
+
+        // Router simple: si le 1er arg est une commande connue, on route.
+        // Sinon, on considère que l'utilisateur veut WriteJC directement.
+        string cmd = (args.Length > 0 && IsCommand(args[0])) ? args[0].ToLowerInvariant() : "writejc";
+        string[] cmdArgs = cmd == "writejc" && (args.Length == 0 || !IsCommand(args[0]))
+            ? args // args = directement ceux de WriteJC
+            : args.Skip(1).ToArray(); // args = après la commande
+
+        return cmd switch
+        {
+            "writejc" => await WriteJC(cmdArgs),
+            _ => UnknownCommand(cmd)
+        };
+    }
+
+    private static bool IsCommand(string s)
+        => s.Equals("writejc", StringComparison.OrdinalIgnoreCase);
+
+    private static int UnknownCommand(string cmd)
+    {
+        Console.Error.WriteLine($"Commande inconnue: {cmd}");
+        PrintHelp();
+        return 2;
+    }
+
+    private static void PrintHelp()
+    {
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  Program.exe [writejc] <inputDir> <recursive>");
+        Console.WriteLine();
+        Console.WriteLine("Exemples:");
+        Console.WriteLine(@"  Program.exe C:\data\json true");
+        Console.WriteLine(@"  Program.exe writejc C:\data\json false");
+        Console.WriteLine();
+        Console.WriteLine("Notes:");
+        Console.WriteLine("  - <recursive> : true/false (optionnel). Par défaut: IncludeSubDirectories.");
+        Console.WriteLine("  - Les .bin sont écrits dans ../bin à côté du dossier d'entrée.");
+    }
+
+    // =======================
+    //      WRITEJC
+    // =======================
+    private static async Task<int> WriteJC(string[] args)
     {
         string inputDir = args.Length > 0 ? args[0] : InputDir;
         bool recursive = args.Length > 1
@@ -421,7 +576,7 @@ internal static class Program
         var binDir = Path.GetFullPath(Path.Combine(inputDir, "..", "bin"));
         Directory.CreateDirectory(binDir);
 
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
         {
             e.Cancel = true;
@@ -459,11 +614,15 @@ internal static class Program
                     }
 
                     var sw = Stopwatch.StartNew();
-                    await JsonToBinaryConverter.ConvertJsonAsync(jsonPath, binPath, ct);
+                    JsonToBinaryConverter.ConvertJson(jsonPath, binPath, ct);
                     sw.Stop();
 
                     Interlocked.Increment(ref ok);
-                    Console.WriteLine($"OK  {Path.GetFileName(jsonPath)} -> {Path.GetFileName(binPath)}  ({sw.Elapsed.TotalSeconds:F1}s)");
+
+                    // ⚠️ Console.WriteLine en parallèle peut ralentir; si besoin, log tous les N
+                    // Console.WriteLine($"OK  {Path.GetFileName(jsonPath)} -> {Path.GetFileName(binPath)}  ({sw.Elapsed.TotalSeconds:F1}s)");
+                    if (ok % 50 == 0)
+                        Console.WriteLine($"Progress OK={ok} | Skip={skipped} | Fail={failed}");
                 }
                 catch (OperationCanceledException)
                 {
@@ -486,11 +645,10 @@ internal static class Program
     }
 
 
-
     public static async Task<int> Main(string[] args)
     {
-        //return await WriteJC(args);
-        return await ReadJC(args);
+        return await WriteJCMain(args);
+        //return await ReadJC(args);
     }
 
 

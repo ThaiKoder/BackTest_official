@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Buffers;
-using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -19,6 +17,7 @@ namespace DatasetTool
         public readonly long O, H, L, C;
         public readonly uint V;
         public readonly byte SymbolCode;
+
 
         public Candle1m(long tsNs, long o, long h, long l, long c, uint v, byte symbolCode)
             => (TsNs, O, H, L, C, V, SymbolCode) = (tsNs, o, h, l, c, v, symbolCode);
@@ -58,6 +57,7 @@ namespace DatasetTool
     {
 
         private static long _lastTsNs = -1;
+        private static readonly string[] QuarterContracts = { "", "NQH", "NQM", "NQU", "NQZ" };
 
         internal static Candle1m ReadCandle(ref Utf8JsonReader reader)
         {
@@ -202,24 +202,28 @@ namespace DatasetTool
         }
 
 
-        public static async Task ConvertJsonAsync(string jsonPath, string binPath, CancellationToken ct = default)
+
+
+        public static void ConvertJson(string jsonPath, string binPath, CancellationToken ct = default)
         {
             long lineNo = 0;
 
-            await using var fs = new FileStream(jsonPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 1 << 20, useAsync: true);
+            using var fs = new FileStream(
+                jsonPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 1 << 20, useAsync: false);
 
-            await using var outFs = new FileStream(binPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 1 << 20, useAsync: true);
+            using var outFs = new FileStream(
+                binPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                bufferSize: 1 << 20, useAsync: false);
 
-            using var bw = new BinaryWriter(outFs, Encoding.UTF8, leaveOpen: true);
+            using var bw = new BinaryWriter(outFs, Encoding.UTF8, leaveOpen: false);
 
             byte[] buffer = new byte[1 << 20];
             byte[] carry = new byte[1 << 20];
             int carryLen = 0;
 
             int bytesRead;
-            while ((bytesRead = await fs.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+            while ((bytesRead = fs.Read(buffer, 0, buffer.Length)) > 0)
             {
                 ct.ThrowIfCancellationRequested();
 
@@ -228,7 +232,7 @@ namespace DatasetTool
                 {
                     if (buffer[i] != (byte)'\n') continue;
 
-                    // traiter une ligne (sync)
+                    // traiter une ligne
                     ProcessLine(buffer, start, i - start, ref carry, ref carryLen, ref lineNo, jsonPath, bw);
 
                     start = i + 1;
@@ -248,30 +252,19 @@ namespace DatasetTool
             if (carryLen > 0)
                 ProcessFinalCarryLine(carry, carryLen, ref lineNo, jsonPath, bw);
 
-
-            bw.Flush();
+            // bw.Dispose() flush automatiquement
         }
 
-        // ✅ SYNC => pas de problème C# 12 avec ref Utf8JsonReader
+        // ✅ SYNC
         private static void ProcessLine(
             byte[] buffer, int start, int segLen,
             ref byte[] carry, ref int carryLen,
             ref long lineNo, string jsonPath,
             BinaryWriter bw)
         {
-            var quarterContracts = new Dictionary<int, string>
-           {
-               { 1, "NQH" },
-               { 2, "NQM" },
-               { 3, "NQU" },
-               { 4, "NQZ" },
-
-            };
-
             int totalLen = carryLen + segLen;
             if (totalLen <= 0) { carryLen = 0; return; }
 
-            // construire Span ligne sans alloc si possible
             ReadOnlySpan<byte> lineSpan;
             byte[]? tmp = null;
 
@@ -298,17 +291,12 @@ namespace DatasetTool
                 try
                 {
                     var candle = ReadCandleFromJsonLine(lineSpan);
-                    int quarter = GetQuarter(candle.TsNs);
-                    string contractName = quarterContracts[quarter];
 
-                    //IF OK
-                    int tmpGetQuarter = GetQuarter(candle.TsNs);
+                    byte quarter = GetQuarter(candle.TsNs);
+                    string contractName = QuarterContracts[quarter]; // si tu en as besoin
 
-                    //if (tmpGetQuarter == candle.SymbolCode)
-                    //if (candle.TsNs != _lastTsNs)
-                    //{
-                        Debug.WriteLine($"======>{tmpGetQuarter}");
-
+                    if (quarter == candle.SymbolCode && _lastTsNs != candle.TsNs)
+                    {
                         bw.Write(candle.TsNs);
                         bw.Write(candle.O);
                         bw.Write(candle.H);
@@ -316,10 +304,9 @@ namespace DatasetTool
                         bw.Write(candle.C);
                         bw.Write(candle.V);
                         bw.Write(candle.SymbolCode);
-
                         _lastTsNs = candle.TsNs;
-                    //}
 
+                    }
 
                 }
                 catch (Exception ex)
@@ -333,7 +320,10 @@ namespace DatasetTool
                 ArrayPool<byte>.Shared.Return(tmp);
         }
 
-        private static void ProcessFinalCarryLine(byte[] carry, int carryLen, ref long lineNo, string jsonPath, BinaryWriter bw)
+        private static void ProcessFinalCarryLine(
+            byte[] carry, int carryLen,
+            ref long lineNo, string jsonPath,
+            BinaryWriter bw)
         {
             ReadOnlySpan<byte> lineSpan = carry.AsSpan(0, carryLen);
             if (!lineSpan.IsEmpty && lineSpan[^1] == (byte)'\r') lineSpan = lineSpan[..^1];
@@ -358,13 +348,15 @@ namespace DatasetTool
                 throw new FormatException($"[{Path.GetFileName(jsonPath)}] ligne {lineNo}: {txt}", ex);
             }
         }
+
         private static void EnsureCapacity(ref byte[] arr, int needed)
         {
             if (arr.Length >= needed) return;
             int newSize = arr.Length;
-            while (newSize < needed) newSize *= 2;
+            while (newSize < needed) newSize <<= 1;
             Array.Resize(ref arr, newSize);
         }
+
 
         // Ici on utilise Utf8JsonReader "en entier" sur UNE ligne JSON.
         private static Candle1m ReadCandleFromJsonLine(ReadOnlySpan<byte> jsonLineUtf8)
