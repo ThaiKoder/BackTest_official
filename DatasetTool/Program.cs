@@ -187,12 +187,10 @@ internal static class Program
                 long ms = ts / 1_000_000L;
                 var dto = DateTimeOffset.FromUnixTimeMilliseconds(ms);
 
-                if (ts != currentDate)
-                {
                     currentDate = ts;
                     currentList = new List<byte>();
                     contractsByDate[ts] = currentList;
-                }
+                
 
                 currentList!.Add(symbol);
                 Console.WriteLine(

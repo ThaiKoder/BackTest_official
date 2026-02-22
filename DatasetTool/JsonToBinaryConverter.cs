@@ -198,7 +198,7 @@ namespace DatasetTool
                 return 3;
             if (date <= Q4Date)
                 return 4;
-            return 0;
+            return 1;
         }
 
 
@@ -295,8 +295,12 @@ namespace DatasetTool
                     byte quarter = GetQuarter(candle.TsNs);
                     string contractName = QuarterContracts[quarter]; // si tu en as besoin
 
+                    //Console.WriteLine($"{quarter}");
+                    //Console.WriteLine($"Ligne {lineNo}: Ts={candle.TsNs} O={candle.O} H={candle.H} L={candle.L} C={candle.C} V={candle.V} Sym={candle.SymbolCode} Quarter={quarter}");
+
                     if (quarter == candle.SymbolCode && _lastTsNs != candle.TsNs)
                     {
+
                         bw.Write(candle.TsNs);
                         bw.Write(candle.O);
                         bw.Write(candle.H);
