@@ -390,22 +390,49 @@ internal static class Program
         return failed == 0 ? 0 : 2;
     }
 
+    public static void loadIndex()
+    {
+
+        // 1) Charger l'index une fois
+        var (starts, ends) = JsonToBinaryIndex.LoadAll("data/bin/_index.bin");
+
+        // 2) Date cible en YYYYMMDD
+        uint targetYmd = 20081218;
+
+        // 3) Recherche binaire
+        int idx = JsonToBinaryIndex.FindBestIndex(starts, ends, targetYmd);
+
+        if (idx >= 0)
+        {
+            Console.WriteLine($"Index choisi: {idx} => {starts[idx]} - {ends[idx]}");
+        }
+    }
+
 
     public static async Task<int> Main(string[] args)
     {
         //createIndex();
         //return 0;
-        int nbRecords = 0;
-        JsonToBinaryIndex.ReadAll("data/bin/_index.bin", (startYmd, endYmd) =>
-        {
-            Console.WriteLine($"{startYmd} -> {endYmd}");
-            nbRecords++;
 
-        });
-        Console.WriteLine($"Total records: {nbRecords}");
-        return 0;
+        //////////////
+
+        //int nbRecords = 0;
+        //JsonToBinaryIndex.ReadAll("data/bin/_index.bin", (startYmd, endYmd) =>
+        //{
+        //    Console.WriteLine($"{startYmd} -> {endYmd}");
+        //    nbRecords++;
+
+        //});
+        //Console.WriteLine($"Total records: {nbRecords}");
+        //return 0;
 
         ////////////
+        ///
+
+        loadIndex();
+        return 0;
+
+        ///////////
 
         //return await WriteJCMain(args);
         //return await ReadJC(args);

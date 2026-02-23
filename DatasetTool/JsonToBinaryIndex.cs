@@ -184,6 +184,72 @@ namespace DatasetTool
                     $"Fichier corrompu: reste {carry} byte(s) (taille record={RecordSize}).");
         }
 
+
+        public static (uint[] starts, uint[] ends) LoadAll(string binPath)
+        {
+            byte[] data = File.ReadAllBytes(binPath);
+
+            if (data.Length % RecordSize != 0)
+                throw new InvalidDataException($"Fichier index corrompu: {data.Length} bytes (record={RecordSize}).");
+
+            int n = data.Length / RecordSize;
+            var starts = new uint[n];
+            var ends = new uint[n];
+
+            int o = 0;
+            for (int i = 0; i < n; i++)
+            {
+                uint s = (uint)(data[o + 0]
+                    | (data[o + 1] << 8)
+                    | (data[o + 2] << 16)
+                    | (data[o + 3] << 24));
+
+                uint e = (uint)(data[o + 4]
+                    | (data[o + 5] << 8)
+                    | (data[o + 6] << 16)
+                    | (data[o + 7] << 24));
+
+                starts[i] = s;
+                ends[i] = e;
+                o += RecordSize;
+            }
+
+            return (starts, ends);
+        }
+
+
+        /// <summary>
+        /// Retourne l'index du record à utiliser.
+        /// - Si target est dans un intervalle : retourne cet index.
+        /// - Sinon : retourne le précédent si possible, sinon le suivant.
+        /// </summary>
+        public static int FindBestIndex(uint[] starts, uint[] ends, uint targetYmd)
+        {
+            int n = starts.Length;
+            if (n == 0) return -1;
+
+            // Trouver le dernier i tel que starts[i] <= target (upper_bound - 1)
+            int lo = 0, hi = n; // hi exclusif
+            while (lo < hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (starts[mid] <= targetYmd) lo = mid + 1;
+                else hi = mid;
+            }
+
+            int i = lo - 1;
+
+            // Si tout est > target : pas de précédent => prendre le premier (suivant)
+            if (i < 0) return 0;
+
+            // Si match dans l'intervalle => parfait
+            if (targetYmd <= ends[i]) return i;
+
+            // Sinon : trou après i. Ta règle => prendre le précédent si possible (donc i)
+            // Si tu préfères prendre le suivant quand target est plus proche du suivant, dis-moi.
+            return i;
+        }
+
         private static void getDates(string fileName)
         {
             ReadOnlySpan<char> span = fileName.AsSpan();
