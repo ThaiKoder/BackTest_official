@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Threading;
 using DatasetTool;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 
@@ -102,7 +103,16 @@ public sealed partial class CandleChartControl : Control
 
         string binDir = Path.Combine("data", "bin");
 
-        var bins = Directory.GetFiles(binDir, "*.bin");
+        var all = Directory.GetFiles(binDir, "*.bin");
+        var binsList = new List<string>(all.Length);
+
+        foreach (var f in all)
+        {
+            if (!f.EndsWith("_index.bin", StringComparison.OrdinalIgnoreCase))
+                binsList.Add(f);
+        }
+
+        var bins = binsList.ToArray();
         Array.Sort(bins, StringComparer.OrdinalIgnoreCase);
 
         if (bins.Length == 0)
