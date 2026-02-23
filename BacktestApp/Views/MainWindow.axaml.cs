@@ -72,22 +72,6 @@ namespace BacktestApp.Views
 
             int idx = _chart.FindFileIndex(targetYmd);
 
-            _chart.OpenBinByIndex(idx);
-        }
-
-
-        public void showGraph(object sender, RoutedEventArgs args)
-        {
-            if (_chart == null)
-            {
-                DebugMessage.Write("Chart pas encore attaché (dock/onglet pas actif / recréation)");
-                return;
-            }
-
-            uint targetYmd = 20090610;
-
-            int idx = _chart.FindFileIndex(targetYmd);
-
             var result = _chart.OpenBinByIndex(idx);
             if (result != null)
             {
@@ -95,9 +79,6 @@ namespace BacktestApp.Views
                 string filePath = $"data/bin/glbx-mdp3-{start}-{end}.ohlcv-1m.bin";
                 _chart.LoadBinFile(filePath);
             }
-
-
-            
         }
 
 
