@@ -95,6 +95,8 @@
 									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="Click_Previous" Cursor="Hand">PREV</Button>
 									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="Click_Next" Cursor="Hand">NEXT</Button>
 
+									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="jumpToDate" Cursor="Hand">Jump to date</Button>
+
 								</StackPanel>
 							</Border>
 						</dock:Tool>

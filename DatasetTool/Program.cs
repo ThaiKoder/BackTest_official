@@ -390,14 +390,13 @@ internal static class Program
         return failed == 0 ? 0 : 2;
     }
 
-    public static void loadIndex()
+    public static void loadIndex(uint targetYmd)
     {
 
         // 1) Charger l'index une fois
         var (starts, ends) = JsonToBinaryIndex.LoadAll("data/bin/_index.bin");
 
         // 2) Date cible en YYYYMMDD
-        uint targetYmd = 20081218;
 
         // 3) Recherche binaire
         int idx = JsonToBinaryIndex.FindBestIndex(starts, ends, targetYmd);
@@ -429,7 +428,7 @@ internal static class Program
         ////////////
         ///
 
-        loadIndex();
+        loadIndex(20081218);
         return 0;
 
         ///////////

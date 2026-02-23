@@ -248,7 +248,7 @@ namespace DatasetTool
             // Sinon : trou après i. Ta règle => prendre le précédent si possible (donc i)
             // Si tu préfères prendre le suivant quand target est plus proche du suivant, dis-moi.
             return i;
-        }
+        } 
 
         private static void getDates(string fileName)
         {

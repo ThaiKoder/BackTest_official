@@ -56,6 +56,11 @@ namespace BacktestApp.Views
         }
 
 
+        public void jumpToDate(object sender, RoutedEventArgs args)
+        {
+            DebugMessage.Write("jumpToDate clicked");
+        }
+
 
         private void Header_PointerPressed(object? sender, PointerPressedEventArgs e)
         {
