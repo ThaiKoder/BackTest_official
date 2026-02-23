@@ -92,12 +92,12 @@ namespace BacktestApp.Views
             if (result != null)
             {
                 var (start, end) = result.Value;
-                DebugMessage.Write($"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
+                string filePath = $"data/bin/glbx-mdp3-{start}-{end}.ohlcv-1m.bin";
+                _chart.LoadBinFile(filePath);
             }
 
 
             
-            //LoadBinFile(filePath);
         }
 
 

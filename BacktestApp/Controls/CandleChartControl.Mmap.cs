@@ -341,7 +341,7 @@ public sealed partial class CandleChartControl
             DebugMessage.Write("[CandleChartControl] Aucun .bin trouvé");
     }
 
-    private void LoadBinFile(string path, long? startOverride = null)
+    public void LoadBinFile(string path, long? startOverride = null)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
 
