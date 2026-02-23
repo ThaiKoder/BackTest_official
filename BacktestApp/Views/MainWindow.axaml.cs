@@ -5,7 +5,9 @@ using Avalonia.Interactivity;
 using BacktestApp.Controls;
 using DatasetTool;
 using System;
+using System.Diagnostics;
 using Tmds.DBus.Protocol;
+using System.IO;
 
 namespace BacktestApp.Views
 {
@@ -68,17 +70,53 @@ namespace BacktestApp.Views
                 return;
             }
 
-            uint targetYmd = 20090610;
+            //uint targetYmd = 20090610;
+            uint targetYmd = 20100620;
 
             int idx = _chart.FindFileIndex(targetYmd);
 
-            var result = _chart.OpenBinByIndex(idx);
-            if (result != null)
+
+
+
+
+            var current = _chart.OpenBinByIndex(idx);
+            if (current != null)
             {
-                var (start, end) = result.Value;
-                string filePath = $"data/bin/glbx-mdp3-{start}-{end}.ohlcv-1m.bin";
+
+                // Deux suivant et précédents
+                var (l1, l2, cur, r1, r2) = _chart.GetNeighborIndexes(idx);
+
+
+                //cur
+                uint start = _chart.getStart(cur);
+                uint end = _chart.getEnd(cur);
+
+                string filePath1 = Path.Combine("data", "bin",
+                    $"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
+
+                DebugMessage.Write(filePath1);
+
+
+                //l2
+                if (l2 > -1)
+                {
+                    uint start2 = _chart.getStart(l2);
+                    uint end2 = _chart.getEnd(l2);
+                    string filePath2 = Path.Combine("data", "bin", $"glbx-mdp3-{start2}-{end2}.ohlcv-1m.bin");
+                    DebugMessage.Write(filePath2);
+                }
+
+
+
+
+                // Charger le fichier ciblé
+                string filePath = Path.Combine("data", "bin", $"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
                 _chart.LoadBinFile(filePath);
+
+
+                    
             }
+
         }
 
 

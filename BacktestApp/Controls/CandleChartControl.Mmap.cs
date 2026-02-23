@@ -295,18 +295,6 @@ public sealed partial class CandleChartControl
     }
 
 
-    public (uint start, uint end)? OpenBinByIndex(int idx)
-    {
-        if (idx >= 0 && idx < _starts.Length)
-        {
-            Debug.WriteLine($"Index choisi: {idx} => {_starts[idx]} - {_ends[idx]}");
-            return (_starts[idx], _ends[idx]);
-        }
-
-        return null;
-    }
-
-
     private long ClampStart(long start)
     {
         long maxStart = Math.Max(0, _fileCount - WindowCount);
@@ -367,4 +355,73 @@ public sealed partial class CandleChartControl
 
         InvalidateVisual();
     }
+
+    public (int from, int to) GetSurroundingRange(int idx, int length)
+    {
+        int from = Math.Max(0, idx - 2);
+        int to = Math.Min(length - 1, idx + 2);
+        return (from, to);
+    }
+
+    public List<(int index, uint start, uint end)> GetSurroundingContracts(int idx, uint[] starts, uint[] ends)
+    {
+        var result = new List<(int, uint, uint)>();
+
+        int from = Math.Max(0, idx - 2);
+        int to = Math.Min(starts.Length - 1, idx + 2);
+
+        for (int i = from; i <= to; i++)
+        {
+            result.Add((i, starts[i], ends[i]));
+        }
+
+        return result;
+    }
+
+
+    public (uint start, uint end)? OpenBinByIndex(int idx)
+    {
+        if (_starts == null || _ends == null) return null;
+        if (idx < 0 || idx >= _starts.Length) return null;
+
+        return (_starts[idx], _ends[idx]);
+    }
+
+    public (int left2, int left1, int current, int right1, int right2)
+        GetNeighborIndexes(int idx)
+    {
+        if (_starts == null)
+            throw new InvalidOperationException("Index non chargé.");
+
+        int len = _starts.Length;
+
+        if (idx < 0 || idx >= len)
+            throw new ArgumentOutOfRangeException(nameof(idx));
+
+        int Safe(int i) => (i >= 0 && i < len) ? i : -1;
+
+        return (
+            Safe(idx - 2),
+            Safe(idx - 1),
+            idx,
+            Safe(idx + 1),
+            Safe(idx + 2)
+        );
+    }
+
+    public uint getStart(int idx)
+    {
+        if (idx < 0 || _starts == null || idx >= _starts.Length)
+            throw new ArgumentOutOfRangeException(nameof(idx));
+        return _starts[idx];
+    }
+
+    public uint getEnd(int idx)
+    {
+        if (idx < 0 || _ends == null || idx >= _ends.Length)
+            throw new ArgumentOutOfRangeException(nameof(idx));
+        return _ends[idx];
+    }
+
+
 }
