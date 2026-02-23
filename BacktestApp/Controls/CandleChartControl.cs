@@ -101,38 +101,13 @@ public sealed partial class CandleChartControl : Control
         if (_loadedOnce) return;
         _loadedOnce = true;
 
-        string binDir = Path.Combine("data", "bin");
+        EnsureBinListLoaded();
+        if (_bins == null || _bins.Length == 0) return;
 
-        var all = Directory.GetFiles(binDir, "*.bin");
-        var binsList = new List<string>(all.Length);
+        // charge le dernier fichier (le plus récent si nomenclature YYYYMMDD)
+        LoadBinFile(_bins[^1]);
 
-        foreach (var f in all)
-        {
-            if (!f.EndsWith("_index.bin", StringComparison.OrdinalIgnoreCase))
-                binsList.Add(f);
-        }
-
-        var bins = binsList.ToArray();
-        Array.Sort(bins, StringComparer.OrdinalIgnoreCase);
-
-        if (bins.Length == 0)
-        {
-            DebugMessage.Write("[CandleChartControl] Aucun .bin trouvé");
-            return;
-        }
-
-        _file?.Dispose();
-        _file = new MmapCandleFile(bins[^1]);
-        _fileCount = _file.Count;
-
-        // charge vers la fin (on lit un peu avant car on filtre)
-        long start = Math.Max(0, _fileCount - 5000);
-        LoadWindow(start);
-
-        _xInited = false;
-        _yInited = false;
-
-        // Timer "edge check" (reload même si on s'arrête au bord)
+        // Timer "edge check"
         _edgeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         _edgeTimer.Tick += (_, __) =>
         {
@@ -146,7 +121,6 @@ public sealed partial class CandleChartControl : Control
         };
 
         _edgeTimer.Start();
-        InvalidateVisual();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)

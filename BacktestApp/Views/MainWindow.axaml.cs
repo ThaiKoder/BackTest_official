@@ -78,7 +78,26 @@ namespace BacktestApp.Views
 
         public void showGraph(object sender, RoutedEventArgs args)
         {
-            DebugMessage.Write("showGraph clicked");
+            if (_chart == null)
+            {
+                DebugMessage.Write("Chart pas encore attaché (dock/onglet pas actif / recréation)");
+                return;
+            }
+
+            uint targetYmd = 20090610;
+
+            int idx = _chart.FindFileIndex(targetYmd);
+
+            var result = _chart.OpenBinByIndex(idx);
+            if (result != null)
+            {
+                var (start, end) = result.Value;
+                DebugMessage.Write($"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
+            }
+
+
+            
+            //LoadBinFile(filePath);
         }
 
 

@@ -1,6 +1,8 @@
 ﻿using Avalonia;
+using Avalonia.Threading;
 using DatasetTool;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.MemoryMappedFiles;
@@ -293,12 +295,15 @@ public sealed partial class CandleChartControl
     }
 
 
-    public void OpenBinByIndex(int idx)
+    public (uint start, uint end)? OpenBinByIndex(int idx)
     {
-        if (idx >= 0)
+        if (idx >= 0 && idx < _starts.Length)
         {
             Debug.WriteLine($"Index choisi: {idx} => {_starts[idx]} - {_ends[idx]}");
+            return (_starts[idx], _ends[idx]);
         }
+
+        return null;
     }
 
 
@@ -308,5 +313,58 @@ public sealed partial class CandleChartControl
         if (start < 0) return 0;
         if (start > maxStart) return maxStart;
         return start;
+    }
+
+
+    private string[]? _bins;               // liste triée des .bin (sans _index.bin)
+    private string? _currentBinPath;       // pour éviter de recharger le même fichier
+
+    private void EnsureBinListLoaded()
+    {
+        if (_bins != null) return;
+
+        string binDir = Path.Combine("data", "bin");
+
+        var all = Directory.GetFiles(binDir, "*.bin");
+        var binsList = new List<string>(all.Length);
+
+        foreach (var f in all)
+        {
+            if (!f.EndsWith("_index.bin", StringComparison.OrdinalIgnoreCase))
+                binsList.Add(f);
+        }
+
+        _bins = binsList.ToArray();
+        Array.Sort(_bins, StringComparer.OrdinalIgnoreCase);
+
+        if (_bins.Length == 0)
+            DebugMessage.Write("[CandleChartControl] Aucun .bin trouvé");
+    }
+
+    private void LoadBinFile(string path, long? startOverride = null)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        // évite de recharger si c’est déjà le fichier courant
+        if (string.Equals(_currentBinPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            // si tu veux quand même repositionner la fenêtre, tu peux laisser passer ici
+        }
+
+        _currentBinPath = path;
+
+        _file?.Dispose();
+        _file = new MmapCandleFile(path);
+        _fileCount = _file.Count;
+
+        // fenêtre de départ
+        long start = startOverride ?? Math.Max(0, _fileCount - 5000);
+        LoadWindow(start);
+
+        // reset axes
+        _xInited = false;
+        _yInited = false;
+
+        InvalidateVisual();
     }
 }
