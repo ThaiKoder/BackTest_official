@@ -85,6 +85,11 @@ public sealed partial class CandleChartControl : Control
         Focusable = true;
     }
 
+
+    private uint[] _starts = Array.Empty<uint>();
+    private uint[] _ends = Array.Empty<uint>();
+
+
     // =========================
     // Attach / detach
     // =========================

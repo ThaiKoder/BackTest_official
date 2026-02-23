@@ -278,16 +278,26 @@ public sealed partial class CandleChartControl
     {
 
         // 1) Charger l'index une fois
-        var (starts, ends) = JsonToBinaryIndex.LoadAll("data/bin/_index.bin");
+        (_starts, _ends) = JsonToBinaryIndex.LoadAll("data/bin/_index.bin");
+    }
 
-        // 2) Date cible en YYYYMMDD
-        uint targetYmd = 20090610;
-        // 3) Recherche binaire
-        int idx = JsonToBinaryIndex.FindBestIndex(starts, ends, targetYmd);
 
+    public int FindFileIndex(uint targetYmd)
+    {
+        if (_starts.Length == 0)
+            return -1;
+
+        int idx = JsonToBinaryIndex.FindBestIndex(_starts, _ends, targetYmd);
+
+        return idx;
+    }
+
+
+    public void OpenBinByIndex(int idx)
+    {
         if (idx >= 0)
         {
-            Debug.WriteLine($"Index choisi: {idx} => {starts[idx]} - {ends[idx]}");
+            Debug.WriteLine($"Index choisi: {idx} => {_starts[idx]} - {_ends[idx]}");
         }
     }
 

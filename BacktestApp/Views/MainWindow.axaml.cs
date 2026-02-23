@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using BacktestApp.Controls;
+using DatasetTool;
 using System;
 using Tmds.DBus.Protocol;
 
@@ -21,6 +22,7 @@ namespace BacktestApp.Views
         private void Chart_Attached(object? sender, VisualTreeAttachmentEventArgs e)
         {
             _chart = (CandleChartControl)sender!;
+            _chart.loadIndex();
             DebugMessage.Write($"Attached: Name = {_chart.Name}");
         }
 
@@ -66,7 +68,11 @@ namespace BacktestApp.Views
                 return;
             }
 
-            _chart.loadIndex();
+            uint targetYmd = 20090610;
+
+            int idx = _chart.FindFileIndex(targetYmd);
+
+            _chart.OpenBinByIndex(idx);
         }
 
 
