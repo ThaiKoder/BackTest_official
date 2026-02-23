@@ -76,6 +76,12 @@ namespace BacktestApp.Views
         }
 
 
+        public void showGraph(object sender, RoutedEventArgs args)
+        {
+            DebugMessage.Write("showGraph clicked");
+        }
+
+
         private void Header_PointerPressed(object? sender, PointerPressedEventArgs e)
         {
             BeginMoveDrag(e);

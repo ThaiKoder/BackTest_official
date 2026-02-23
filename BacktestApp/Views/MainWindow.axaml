@@ -97,6 +97,8 @@
 
 									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="jumpToDate" Cursor="Hand">Jump to date</Button>
 
+									<Button Foreground="{DynamicResource Color.Text.Primary}" Background="{DynamicResource Color.Background.Unfocus}" Click="showGraph" Cursor="Hand">Show graph</Button>
+
 								</StackPanel>
 							</Border>
 						</dock:Tool>
