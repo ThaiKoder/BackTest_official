@@ -1,4 +1,5 @@
 ﻿using Avalonia;
+using DatasetTool;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -272,6 +273,24 @@ public sealed partial class CandleChartControl
         ReloadWindow(ClampStart(newStart));
         InvalidateVisual();
     }
+
+    public void loadIndex()
+    {
+
+        // 1) Charger l'index une fois
+        var (starts, ends) = JsonToBinaryIndex.LoadAll("data/bin/_index.bin");
+
+        // 2) Date cible en YYYYMMDD
+        uint targetYmd = 20090610;
+        // 3) Recherche binaire
+        int idx = JsonToBinaryIndex.FindBestIndex(starts, ends, targetYmd);
+
+        if (idx >= 0)
+        {
+            Debug.WriteLine($"Index choisi: {idx} => {starts[idx]} - {ends[idx]}");
+        }
+    }
+
 
     private long ClampStart(long start)
     {

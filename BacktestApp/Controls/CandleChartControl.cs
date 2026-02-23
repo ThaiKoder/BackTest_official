@@ -1,6 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using DatasetTool;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -143,4 +144,5 @@ public sealed partial class CandleChartControl : Control
         _file?.Dispose();
         _file = null;
     }
+
 }

@@ -59,6 +59,14 @@ namespace BacktestApp.Views
         public void jumpToDate(object sender, RoutedEventArgs args)
         {
             DebugMessage.Write("jumpToDate clicked");
+
+            if (_chart == null)
+            {
+                DebugMessage.Write("Chart pas encore attaché (dock/onglet pas actif / recréation)");
+                return;
+            }
+
+            _chart.loadIndex();
         }
 
 
