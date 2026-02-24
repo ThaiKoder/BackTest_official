@@ -112,7 +112,9 @@ public sealed partial class CandleChartControl : Control
 
         // 2) Choisir le contrat courant à afficher
         uint targetYmd = 20090620;
-        int idx = FindFileIndex(targetYmd);
+        //int idx = FindFileIndex(targetYmd);
+        int idx = 3;
+
         if (idx < 0)
         {
             DebugMessage.Write("[CandleChartControl] Aucun fichier trouvé pour la date cible");

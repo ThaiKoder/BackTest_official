@@ -138,7 +138,7 @@ public sealed partial class CandleChartControl
     // =========================
     // Reload window (sans sauts) + clamp centre
     // =========================
-    private void ReloadWindow(long newStart)
+    private void ReloadWindow(long newStart, bool preserveView)
     {
         if (_file is null) return;
         if (_reloadInProgress) return;
@@ -159,15 +159,19 @@ public sealed partial class CandleChartControl
         {
             LoadWindow(newStart);
 
-            _centerTimeSec = keepCenterTime;
-            _secondsPerPixel = keepSecondsPerPixel;
-            _centerPrice = keepCenterPrice;
-            _pricePerPixel = keepPricePerPixel;
-
-            var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
-            if (plot.Width > 0) ClampCenterTimeToWindow(plot);
-
-            InvalidateVisual();
+            if (preserveView)
+            {
+                _centerTimeSec = keepCenterTime;
+                _secondsPerPixel = keepSecondsPerPixel;
+                _centerPrice = keepCenterPrice;
+                _pricePerPixel = keepPricePerPixel;
+            }
+            else
+            {
+                // navigation: centre cohérent avec la nouvelle fenêtre
+                if (_windowLoaded > 0)
+                    _centerTimeSec = TsNsToEpochSeconds(_ts[_windowLoaded / 2]);
+            }
         }
         finally
         {
@@ -175,6 +179,24 @@ public sealed partial class CandleChartControl
         }
     }
 
+
+    private void ReloadWindowForNavigation(long newStart, long desiredCenterGlobal)
+    {
+        // charge la fenêtre sans préserver la vue (pas de "rebond")
+        ReloadWindow(newStart, preserveView: false);
+
+        if (_windowLoaded <= 0) return;
+
+        // Place le centre exactement sur l'index global désiré (si dans la fenêtre)
+        int local = (int)(desiredCenterGlobal - _windowStart);
+        local = ClampInt(local, 0, _windowLoaded - 1);
+        _centerTimeSec = TsNsToEpochSeconds(_ts[local]);
+
+        var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
+        if (plot.Width > 0) ClampCenterTimeToWindow(plot);
+
+        InvalidateVisual();
+    }
 
     private void EnsureWindowAroundView(Rect plot)
     {
@@ -193,7 +215,7 @@ public sealed partial class CandleChartControl
         {
             long centerGlobal = _windowStart + centerLocal;
             long newStart = centerGlobal - (WindowCount / 2);
-            ReloadWindow(newStart);
+            ReloadWindow(ClampStart(newStart), preserveView: true);
         }
     }
 
@@ -265,7 +287,7 @@ public sealed partial class CandleChartControl
         long newCenterGlobal = centerGlobal - CursorStep;
         long newStart = newCenterGlobal - (WindowCount / 2);
 
-        ReloadWindow(ClampStart(newStart));
+        //ReloadWindow;(ClampStart(newStart));
         InvalidateVisual();
     }
 
@@ -278,16 +300,11 @@ public sealed partial class CandleChartControl
         if (IsAtEndOfFile())
         {
             int nextIdx = _currentIdx + 1;
-            if (nextIdx < _starts.Length)
+            if (_starts != null && nextIdx < _starts.Length)
             {
-                // ✅ switch de contrat + preload/cleanup
                 LoadByIndexWithNeighbors(nextIdx);
-
-                // ✅ au début du nouveau fichier
-                ReloadWindow(0);
+                ReloadWindowForNavigation(0, desiredCenterGlobal: WindowCount / 2);
             }
-
-            Debug.WriteLine($"CursorNext: at end of file, currentIdx={_currentIdx}, nextIdx={nextIdx}, contractsCount={_starts.Length}");
             return;
         }
 
@@ -298,7 +315,8 @@ public sealed partial class CandleChartControl
         long newCenterGlobal = centerGlobal + CursorStep;
         long newStart = newCenterGlobal - (WindowCount / 2);
 
-        ReloadWindow(ClampStart(newStart));
+        long targetStart = ClampStart(newStart);
+        ReloadWindowForNavigation(targetStart, desiredCenterGlobal: newCenterGlobal);
     }
 
     public void loadIndex()

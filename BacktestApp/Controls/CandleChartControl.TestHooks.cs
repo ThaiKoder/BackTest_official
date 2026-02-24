@@ -14,7 +14,7 @@ public sealed partial class CandleChartControl
     internal void Test_LoadByIndexWithNeighbors(int idx) => LoadByIndexWithNeighbors(idx);
 
     // Permet au test de forcer le windowStart
-    internal void Test_ReloadWindow(long newStart) => ReloadWindow(newStart);
+    internal void Test_ReloadWindow(long newStart) => ReloadWindow(newStart, preserveView: false);
 
     // Permet au test de charger l'index réel
     internal void Test_LoadIndex() => loadIndex();
