@@ -286,6 +286,8 @@ public sealed partial class CandleChartControl
                 // ✅ au début du nouveau fichier
                 ReloadWindow(0);
             }
+
+            Debug.WriteLine($"CursorNext: at end of file, currentIdx={_currentIdx}, nextIdx={nextIdx}, contractsCount={_starts.Length}");
             return;
         }
 

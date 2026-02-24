@@ -23,4 +23,15 @@ public sealed partial class CandleChartControl
     internal (int m2, int m1, int cur, int p1, int p2) Test_Neighbors(int idx) => GetNeighborIndexes(idx);
 
     internal int Test_ContractsCount => _starts?.Length ?? 0;
+
+    internal int Test_CursorStep => CursorStep;
+
+    // Met le centre exactement au milieu de la fenêtre actuelle
+    internal void Test_SetCenterToWindowMiddle()
+    {
+        if (_windowLoaded <= 0) return;
+
+        int mid = _windowLoaded / 2;
+        _centerTimeSec = TsNsToEpochSeconds(_ts[mid]);
+    }
 }
