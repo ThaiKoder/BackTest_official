@@ -81,6 +81,12 @@ public sealed partial class CandleChartControl : Control
 
     private DispatcherTimer? _edgeTimer;
 
+
+    private int _currentIdx = -1;
+    private const int LoadStartTail = 5000; // "read un peu avant la fin"
+    private MmapCandleFile? _fM2, _fM1, _f0, _fP1, _fP2;
+    private int _iM2 = -1, _iM1 = -1, _i0 = -1, _iP1 = -1, _iP2 = -1;
+
     public CandleChartControl()
     {
         Focusable = true;
@@ -101,13 +107,22 @@ public sealed partial class CandleChartControl : Control
         if (_loadedOnce) return;
         _loadedOnce = true;
 
-        EnsureBinListLoaded();
-        if (_bins == null || _bins.Length == 0) return;
+        // 1) Charger l'index une fois
+        loadIndex(); // charge _starts/_ends une fois
 
-        // charge le dernier fichier (le plus récent si nomenclature YYYYMMDD)
-        LoadBinFile(_bins[^1]);
+        // 2) Choisir le contrat courant à afficher
+        uint targetYmd = 20090620;
+        int idx = FindFileIndex(targetYmd);
+        if (idx < 0)
+        {
+            DebugMessage.Write("[CandleChartControl] Aucun fichier trouvé pour la date cible");
+            return;
+        }
 
-        // Timer "edge check"
+        // 3) Charger le fichier courant (fin du fichier)
+        LoadContractIndex(idx, goToStart: false);
+
+        // 4) Timer "edge check"
         _edgeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
         _edgeTimer.Tick += (_, __) =>
         {
@@ -122,13 +137,18 @@ public sealed partial class CandleChartControl : Control
 
         _edgeTimer.Start();
     }
-
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
 
         _edgeTimer?.Stop();
         _edgeTimer = null;
+
+        DisposeSlot(ref _fM2, ref _iM2);
+        DisposeSlot(ref _fM1, ref _iM1);
+        DisposeSlot(ref _f0, ref _i0);
+        DisposeSlot(ref _fP1, ref _iP1);
+        DisposeSlot(ref _fP2, ref _iP2);
 
         _file?.Dispose();
         _file = null;

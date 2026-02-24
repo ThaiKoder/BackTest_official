@@ -246,6 +246,17 @@ public sealed partial class CandleChartControl
         if (_windowLoaded <= 0) return;
         if (_reloadInProgress) return;
 
+        // Au début du fichier ? => passer au contrat précédent
+        if (IsAtStartOfFile())
+        {
+            int prevIdx = _currentIdx - 1;
+            if (_starts != null && prevIdx >= 0)
+            {
+                LoadContractIndex(prevIdx, goToStart: false);
+            }
+            return;
+        }
+
         int centerLocal = FindClosestIndexInWindow(_centerTimeSec);
         if (centerLocal < 0) centerLocal = _windowLoaded / 2;
 
@@ -264,6 +275,17 @@ public sealed partial class CandleChartControl
         if (_windowLoaded <= 0) return;
         if (_reloadInProgress) return;
 
+        // Au bout du fichier ? => passer au contrat suivant
+        if (IsAtEndOfFile())
+        {
+            int nextIdx = _currentIdx + 1;
+            if (_starts != null && nextIdx < _starts.Length)
+            {
+                LoadContractIndex(nextIdx, goToStart: true);
+            }
+            return;
+        }
+
         int centerLocal = FindClosestIndexInWindow(_centerTimeSec);
         if (centerLocal < 0) centerLocal = _windowLoaded / 2;
 
@@ -275,7 +297,6 @@ public sealed partial class CandleChartControl
         ReloadWindow(ClampStart(newStart));
         InvalidateVisual();
     }
-
     public void loadIndex()
     {
 
@@ -423,5 +444,170 @@ public sealed partial class CandleChartControl
         return _ends[idx];
     }
 
+
+    private string BuildPathByIndex(int idx)
+    {
+        uint start = _starts[idx];
+        uint end = _ends[idx];
+        return Path.Combine("data", "bin", $"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
+    }
+
+    private MmapCandleFile? TryOpenFile(int idx)
+    {
+        if (idx < 0 || idx >= _starts.Length) return null;
+
+        string path = BuildPathByIndex(idx);
+        if (!File.Exists(path))
+        {
+            DebugMessage.Write($"[CandleChartControl] Missing file: {path}");
+            return null;
+        }
+
+        return new MmapCandleFile(path);
+    }
+
+    private static void DisposeSlot(ref MmapCandleFile? f, ref int i)
+    {
+        f?.Dispose();
+        f = null;
+        i = -1;
+    }
+
+
+    private MmapCandleFile? GetLoadedFileForIndex(int idx)
+    {
+        if (idx == _i0) return _f0;
+        if (idx == _iM1) return _fM1;
+        if (idx == _iM2) return _fM2;
+        if (idx == _iP1) return _fP1;
+        if (idx == _iP2) return _fP2;
+        return null;
+    }
+
+
+    private void CleanupFive(int m2, int m1, int cur, int p1, int p2)
+    {
+        bool Keep(int i) => i == m2 || i == m1 || i == cur || i == p1 || i == p2;
+
+        if (_iM2 != -1 && !Keep(_iM2)) DisposeSlot(ref _fM2, ref _iM2);
+        if (_iM1 != -1 && !Keep(_iM1)) DisposeSlot(ref _fM1, ref _iM1);
+        if (_i0 != -1 && !Keep(_i0)) DisposeSlot(ref _f0, ref _i0);
+        if (_iP1 != -1 && !Keep(_iP1)) DisposeSlot(ref _fP1, ref _iP1);
+        if (_iP2 != -1 && !Keep(_iP2)) DisposeSlot(ref _fP2, ref _iP2);
+    }
+
+    private void EnsureSlot(ref MmapCandleFile? slotFile, ref int slotIdx, int wantedIdx)
+    {
+        if (wantedIdx < 0 || wantedIdx >= _starts.Length)
+        {
+            // extrémité => slot vide
+            if (slotIdx != -1) DisposeSlot(ref slotFile, ref slotIdx);
+            return;
+        }
+
+        if (slotIdx == wantedIdx && slotFile != null)
+            return; // déjà bon
+
+        // si slot contient autre chose, on le libère
+        if (slotIdx != -1 && slotIdx != wantedIdx)
+            DisposeSlot(ref slotFile, ref slotIdx);
+
+        // si déjà chargé dans un autre slot, on réutilise (sans dupliquer)
+        var existing = GetLoadedFileForIndex(wantedIdx);
+        if (existing != null)
+        {
+            slotFile = existing;
+            slotIdx = wantedIdx;
+            return;
+        }
+
+        // sinon on ouvre
+        slotFile = TryOpenFile(wantedIdx);
+        slotIdx = (slotFile != null) ? wantedIdx : -1;
+    }
+
+
+    public void LoadByIndexWithNeighbors(int idx)
+    {
+
+        if (_starts == null || _ends == null) return;
+        if (_starts.Length == 0) return;
+        if (idx < 0 || idx >= _starts.Length) return;
+
+        var (m2, m1, cur, p1, p2) = GetNeighborIndexes(idx);
+
+        // 1) cleanup tout ce qui n'est pas dans la nouvelle plage
+        CleanupFive(m2, m1, cur, p1, p2);
+
+        // 2) remplir les slots requis (ouvre ce qui manque)
+        EnsureSlot(ref _fM2, ref _iM2, m2);
+        EnsureSlot(ref _fM1, ref _iM1, m1);
+        EnsureSlot(ref _f0, ref _i0, cur);
+        EnsureSlot(ref _fP1, ref _iP1, p1);
+        EnsureSlot(ref _fP2, ref _iP2, p2);
+
+        // 3) current = slot 0
+        if (_f0 == null)
+        {
+            DebugMessage.Write($"[CandleChartControl] Cannot open current idx={cur}");
+            return;
+        }
+
+        _file = _f0;
+        _fileCount = _file.Count;
+
+        long start = Math.Max(0, _fileCount - 5000);
+        LoadWindow(start);
+
+        _xInited = false;
+        _yInited = false;
+
+        InvalidateVisual();
+    }
+
+
+
+    private bool IsAtEndOfFile()
+    {
+        long maxStart = Math.Max(0, _fileCount - WindowCount);
+        return _windowStart >= maxStart;
+    }
+
+    private bool IsAtStartOfFile()
+    {
+        return _windowStart <= 0;
+    }
+
+    public void LoadContractIndex(int idx, bool goToStart)
+    {
+        if (_starts == null || _ends == null) return;
+        if (idx < 0 || idx >= _starts.Length) return;
+
+        _currentIdx = idx;
+
+        uint start = _starts[idx];
+        uint end = _ends[idx];
+
+        string filePath = Path.Combine("data", "bin", $"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
+
+        // Charger le fichier
+        _file?.Dispose();
+        _file = new MmapCandleFile(filePath);
+        _fileCount = _file.Count;
+
+        // Charger une fenêtre au début ou à la fin
+        long startIndex;
+        if (goToStart)
+            startIndex = 0;
+        else
+            startIndex = Math.Max(0, _fileCount - LoadStartTail);
+
+        LoadWindow(startIndex);
+
+        _xInited = false;
+        _yInited = false;
+
+        InvalidateVisual();
+    }
 
 }

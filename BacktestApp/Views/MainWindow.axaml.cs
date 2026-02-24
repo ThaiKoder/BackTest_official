@@ -62,6 +62,7 @@ namespace BacktestApp.Views
 
         public void jumpToDate(object sender, RoutedEventArgs args)
         {
+
             DebugMessage.Write("jumpToDate clicked");
 
             if (_chart == null)
@@ -70,52 +71,12 @@ namespace BacktestApp.Views
                 return;
             }
 
-            //uint targetYmd = 20090610;
-            uint targetYmd = 20100620;
+            _chart.loadIndex(); // charge _starts/_ends une fois
+                                //int lastIdx = _starts.Length - 1;
+            uint targetYmd = 20090620;
 
             int idx = _chart.FindFileIndex(targetYmd);
-
-
-
-
-
-            var current = _chart.OpenBinByIndex(idx);
-            if (current != null)
-            {
-
-                // Deux suivant et précédents
-                var (l1, l2, cur, r1, r2) = _chart.GetNeighborIndexes(idx);
-
-
-                //cur
-                uint start = _chart.getStart(cur);
-                uint end = _chart.getEnd(cur);
-
-                string filePath1 = Path.Combine("data", "bin",
-                    $"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
-
-                DebugMessage.Write(filePath1);
-
-
-                //l2
-                if (l2 > -1)
-                {
-                    uint start2 = _chart.getStart(l2);
-                    uint end2 = _chart.getEnd(l2);
-                    string filePath2 = Path.Combine("data", "bin", $"glbx-mdp3-{start2}-{end2}.ohlcv-1m.bin");
-                    DebugMessage.Write(filePath2);
-                }
-
-
-
-
-                // Charger le fichier ciblé
-                string filePath = Path.Combine("data", "bin", $"glbx-mdp3-{start}-{end}.ohlcv-1m.bin");
-                _chart.LoadBinFile(filePath);
-
-
-                    
-            }
+            _chart.LoadContractIndex(idx, goToStart: false);
 
         }
 
