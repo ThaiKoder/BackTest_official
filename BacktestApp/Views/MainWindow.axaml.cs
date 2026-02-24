@@ -73,7 +73,7 @@ namespace BacktestApp.Views
 
             _chart.loadIndex(); // charge _starts/_ends une fois
                                 //int lastIdx = _starts.Length - 1;
-            uint targetYmd = 20090620;
+            uint targetYmd = 20100704;
 
             int idx = _chart.FindFileIndex(targetYmd);
             _chart.LoadContractIndex(idx, goToStart: false);

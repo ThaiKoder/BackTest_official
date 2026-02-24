@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\BacktestApp\BacktestApp.csproj" />
     <ProjectReference Include="..\DatasetTool\DatasetTool.csproj" />
   </ItemGroup>
 

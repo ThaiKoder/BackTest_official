@@ -275,13 +275,16 @@ public sealed partial class CandleChartControl
         if (_windowLoaded <= 0) return;
         if (_reloadInProgress) return;
 
-        // Au bout du fichier ? => passer au contrat suivant
         if (IsAtEndOfFile())
         {
             int nextIdx = _currentIdx + 1;
-            if (_starts != null && nextIdx < _starts.Length)
+            if (nextIdx < _starts.Length)
             {
-                LoadContractIndex(nextIdx, goToStart: true);
+                // ✅ switch de contrat + preload/cleanup
+                LoadByIndexWithNeighbors(nextIdx);
+
+                // ✅ au début du nouveau fichier
+                ReloadWindow(0);
             }
             return;
         }
@@ -290,13 +293,12 @@ public sealed partial class CandleChartControl
         if (centerLocal < 0) centerLocal = _windowLoaded / 2;
 
         long centerGlobal = _windowStart + centerLocal;
-
         long newCenterGlobal = centerGlobal + CursorStep;
         long newStart = newCenterGlobal - (WindowCount / 2);
 
         ReloadWindow(ClampStart(newStart));
-        InvalidateVisual();
     }
+
     public void loadIndex()
     {
 
@@ -512,14 +514,6 @@ public sealed partial class CandleChartControl
         if (slotIdx != -1 && slotIdx != wantedIdx)
             DisposeSlot(ref slotFile, ref slotIdx);
 
-        // si déjà chargé dans un autre slot, on réutilise (sans dupliquer)
-        var existing = GetLoadedFileForIndex(wantedIdx);
-        if (existing != null)
-        {
-            slotFile = existing;
-            slotIdx = wantedIdx;
-            return;
-        }
 
         // sinon on ouvre
         slotFile = TryOpenFile(wantedIdx);
@@ -529,10 +523,11 @@ public sealed partial class CandleChartControl
 
     public void LoadByIndexWithNeighbors(int idx)
     {
-
         if (_starts == null || _ends == null) return;
         if (_starts.Length == 0) return;
         if (idx < 0 || idx >= _starts.Length) return;
+
+        _currentIdx = idx;
 
         var (m2, m1, cur, p1, p2) = GetNeighborIndexes(idx);
 
