@@ -82,6 +82,12 @@ public sealed partial class CandleChartControl
 
 
     // IndexReader
-    internal IndexReader Test_indexReader() => new IndexReader();
+    internal FileIndex Test_indexReader() => new FileIndex();
+
+    internal void Test_LoadIndexFile(string path)
+    {
+        var index = Test_indexReader();
+        index.Load(path);
+    }
 
 }
