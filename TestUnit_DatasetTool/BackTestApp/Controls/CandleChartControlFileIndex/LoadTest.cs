@@ -74,7 +74,6 @@ public class LoadTest
 
 
 
-    //Parcourir tout les fichiers avec Next File
    // Parcourir liste fichiers index et vérifier x premiers et x derniers records en fonction de l'index courant
     [Fact]
     public void Test4_FilesNext_Range3_Iterates_AsExpected()
@@ -135,13 +134,120 @@ public class LoadTest
     }
 
 
+    //Parcourir tout les fichiers avec Next File
+
+    [Fact]
+    public void Test5_FilesNext_Range3_Iterates_Whole_List()
+    {
+        var chart = new global::BacktestApp.Controls.CandleChartControl();
+        chart.Test_LoadIndexFile("data/bin/_index.bin");
+
+        int range = 3;
+        int count = (int)chart.Test_IndexCount;
+        int stepSize = range + 1;
+
+        Assert.True(count > 0, "Le fichier index doit contenir au moins un record.");
+
+        int cursor = 0;
+        int previousCursor = -1;
+        int stepNumber = 0;
+
+        global::BacktestApp.Controls.CandleChartControl.FileIndex.FileCursorStep lastStep = null!;
+
+        while (true)
+        {
+            var step = chart.FilesNext(cursor, range);
+            stepNumber++;
+
+            // Vérifie CurrentIdx
+            Assert.Equal(cursor, step.CurrentIdx);
+
+            // Vérifie la fenêtre attendue
+            int[] expectedWindow = new int[range * 2 + 1];
+            int p = 0;
+            for (int i = cursor - range; i <= cursor + range; i++)
+                expectedWindow[p++] = (i < 0 || i >= count) ? -1 : i;
+
+            Assert.Equal(expectedWindow, step.Window.Select(x => x.Idx).ToArray());
+
+            // Vérifie le contenu start/end pour tous les idx valides
+            foreach (var item in step.Window)
+            {
+                if (item.Idx == -1)
+                {
+                    Assert.Equal(0u, item.StartYmd);
+                    Assert.Equal(0u, item.EndYmd);
+                }
+                else
+                {
+                    var (start, end) = chart.getFileIndex.Read(item.Idx);
+                    Assert.Equal(start, item.StartYmd);
+                    Assert.Equal(end, item.EndYmd);
+                }
+            }
+
+            // Vérifie Added / Removed
+            int[] expectedAdded;
+            int[] expectedRemoved;
+
+            if (stepNumber == 1)
+            {
+                expectedAdded = expectedWindow.Where(x => x != -1).ToArray();
+                expectedRemoved = Array.Empty<int>();
+            }
+            else
+            {
+                int[] prevWindow = new int[range * 2 + 1];
+                p = 0;
+                for (int i = previousCursor - range; i <= previousCursor + range; i++)
+                    prevWindow[p++] = (i < 0 || i >= count) ? -1 : i;
+
+                expectedAdded = expectedWindow
+                    .Where(x => x != -1 && !prevWindow.Contains(x))
+                    .ToArray();
+
+                expectedRemoved = prevWindow
+                    .Where(x => x != -1 && !expectedWindow.Contains(x))
+                    .ToArray();
+            }
+
+            Assert.Equal(expectedAdded, step.Added.Select(x => x.Idx).ToArray());
+            Assert.Equal(expectedRemoved, step.Removed.Select(x => x.Idx).ToArray());
+
+            // Vérifie NextCursorIdx
+            bool hasRightMinusOne = expectedWindow[^1] == -1;
+            int expectedNext = hasRightMinusOne ? -1 : cursor + stepSize;
+
+            Assert.Equal(expectedNext, step.NextCursorIdx);
+
+            lastStep = step;
+
+            if (step.NextCursorIdx == -1)
+                break;
+
+            previousCursor = cursor;
+            cursor = step.NextCursorIdx;
+        }
+
+        // Appel après fin : rien ne change
+        var finalNoOp = chart.FilesNext(lastStep.CurrentIdx, range);
+
+        Assert.Equal(lastStep.CurrentIdx, finalNoOp.CurrentIdx);
+        Assert.Equal(-1, finalNoOp.NextCursorIdx);
+        Assert.Equal(
+            lastStep.Window.Select(x => x.Idx).ToArray(),
+            finalNoOp.Window.Select(x => x.Idx).ToArray());
+
+        Assert.Empty(finalNoOp.Added);
+        Assert.Empty(finalNoOp.Removed);
+    }
     //Test6 : Verifier x premiers et x derniers records en fonction de l'index courant 0 et len -1
 
-    
+
 
     //Test7 : Parcourirs liste fichiers avec recherche binaire et verifier l'idx + nom fichier + x derniers et x premiers en fonction de la position idx
 
-    
+
 
 
 
