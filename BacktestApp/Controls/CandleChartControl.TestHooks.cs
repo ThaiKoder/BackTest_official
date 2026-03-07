@@ -83,6 +83,9 @@ public sealed partial class CandleChartControl
 
     public FileIndex getFileIndex => _testFileIndex;
 
+    public FileIndex.FileCursorStep FilesNext(int cursorIdx, int range)
+        => _testFileIndex!.FilesNext(cursorIdx, range);
+
     internal long Test_IndexCount => getFileIndex.Count;
 
     internal FileIndex Test_indexReader() => new FileIndex();

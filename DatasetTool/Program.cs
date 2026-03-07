@@ -410,8 +410,8 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
-        //createIndex();
-        //return 0;
+        createIndex();
+        return 0;
 
         //////////////
 
@@ -428,8 +428,8 @@ internal static class Program
         ////////////
         ///
 
-        loadIndex(20081218);
-        return 0;
+        //loadIndex(20081218);
+        //return 0;
 
         ///////////
 
