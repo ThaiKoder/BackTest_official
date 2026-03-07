@@ -6,7 +6,7 @@ namespace BacktestApp.Controls;
 
 internal static class DebugMessage
 {
-    private static bool show  = true;
+    private static bool show  = false;
     public static void Write(string message)
     {
 #if DEBUG

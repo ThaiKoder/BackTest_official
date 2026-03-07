@@ -97,15 +97,24 @@ public sealed partial class CandleChartControl
     // =========================
     private void LoadWindow(long startIndex)
     {
+        //Debug.WriteLine($"[LoadWindow] idx={_currentIdx} startIndex={startIndex} _fileCount={_fileCount} file.Count={_file?.Count}");
         if (_file is null) return;
-
+        if (_sym == null || _sym.Length < WindowCount) _sym = new byte[WindowCount];
         long idx = startIndex;
         int filled = 0;
         int isInvalidCount = 0;
 
+
+
+        //if (_currentIdx == 525)
+        //{
+        //    Debug.WriteLine($"[525] startIndex={startIndex} fileCount={_fileCount} WindowCount={WindowCount}");
+        //    Debug.WriteLine($"[525] loaded={_windowLoaded} invalidSkipped={isInvalidCount}");
+        //}
+
         while (filled < WindowCount && idx < _fileCount)
         {
-            Span<byte> sym = _sym.AsSpan(filled * MmapCandleFile.SymbolSize, MmapCandleFile.SymbolSize);
+            Span<byte> sym = stackalloc byte[MmapCandleFile.SymbolSize]; // 1 byte
 
             if (!_file.ReadAt(idx, out var ts, out var o, out var h, out var l, out var c, out var v, sym))
                 break;
@@ -118,12 +127,31 @@ public sealed partial class CandleChartControl
                 _l[filled] = l;
                 _c[filled] = c;
                 _v[filled] = v;
+
+                _sym[filled] = sym[0]; // ✅ on stocke le symbole validé
+
+                //Debug.WriteLine($"Loaded record idx={idx} ts={ts} o={o} h={h} l={l} c={c} v={v} sym={(char)_sym[filled]}");
                 filled++;
-                DebugMessage.Write($"Loaded record idx={idx} ts={ts} o={o} h={h} l={l} c={c} v={v} sym={(char)sym[0]}");
             }
-            else { isInvalidCount++; }
+            else
+            {
+                isInvalidCount++;
+            }
 
             idx++;
+        }
+
+        if (_currentIdx == 525 && startIndex >= 2280)
+        {
+            for (int i = 1; i < filled; i++)
+            {
+                if (_ts[i] <= _ts[i - 1])
+                {
+                    Debug.WriteLine($"[525][BAD] local i={i} ts[i-1]={_ts[i - 1]} ts[i]={_ts[i]} " +
+                                    $"deltaNs={_ts[i] - _ts[i - 1]} windowStart={startIndex}");
+                    break;
+                }
+            }
         }
 
         _windowLoaded = filled;
@@ -293,16 +321,56 @@ public sealed partial class CandleChartControl
 
     public void CursorNext()
     {
-        if (_file is null) return;
-        if (_windowLoaded <= 0) return;
-        if (_reloadInProgress) return;
+
+        if (_currentIdx == 525)
+        {
+            long maxStart = Math.Max(0, _fileCount - WindowCount);
+            Debug.WriteLine($"[DBG] idx={_currentIdx} _fileCount={_fileCount} file.Count={_file?.Count} windowStart={_windowStart} loaded={_windowLoaded}");
+        }
+
+        if (_file is null)
+        {
+            //Debug.WriteLine("[CursorNext] _file is null");
+            return;
+        }
+
+        if (_windowLoaded <= 1)
+        {
+            //Debug.WriteLine($"[CursorNext] WINDOW EMPTY at contractIdx={_currentIdx}");
+            //Debug.WriteLine($"fileCount={_fileCount} windowStart={_windowStart}");
+            //Debug.WriteLine($"startDate={_starts?[_currentIdx]} endDate={_ends?[_currentIdx]}");
+
+            string path = BuildPathByIndex(_currentIdx);
+            //Debug.WriteLine($"filePath={path}");
+
+            return;
+        }
+
+        if (_reloadInProgress)
+        {
+            //Debug.WriteLine("[CursorNext] reload in progress");
+            return;
+        }
+
+        //Debug.WriteLine($"[CursorNext] contractIdx={_currentIdx} windowStart={_windowStart} loaded={_windowLoaded}");
+
+        if (_currentIdx == 525)
+        {
+            long maxStart = Math.Max(0, _fileCount - WindowCount);
+            //Debug.WriteLine($"[525] BEFORE IsAtEndOfFile: windowStart={_windowStart} maxStart={maxStart} willEnd={_windowStart >= maxStart}");
+        }
 
         if (IsAtEndOfFile())
         {
+            //Debug.WriteLine($"[SWITCH] end reached on idx={_currentIdx} windowStart={_windowStart}");
             int nextIdx = _currentIdx + 1;
+            //Debug.WriteLine($"[SWITCH] trying nextIdx={nextIdx} len={_starts?.Length}");
+
             if (_starts != null && nextIdx < _starts.Length)
             {
+                //Debug.WriteLine($"[SWITCH] next path={BuildPathByIndex(nextIdx)}");
                 LoadByIndexWithNeighbors(nextIdx);
+                //Debug.WriteLine($"[SWITCH] after load currentIdx={_currentIdx} fileCount={_fileCount}");
                 ReloadWindowForNavigation(0, desiredCenterGlobal: WindowCount / 2);
             }
             return;
@@ -317,11 +385,23 @@ public sealed partial class CandleChartControl
 
         long targetStart = ClampStart(newStart);
         ReloadWindowForNavigation(targetStart, desiredCenterGlobal: newCenterGlobal);
+
+        if (_currentIdx == 525 && _windowStart >= 2200 && _windowStart <= 2400)
+        {
+            Debug.WriteLine($"[525] centerTimeSec={_centerTimeSec}");
+            Debug.WriteLine($"[525] centerLocal={centerLocal} windowLoaded={_windowLoaded} windowStart={_windowStart}");
+            Debug.WriteLine($"[525] ts0={_ts[0]} tsLast={_ts[_windowLoaded - 1]}");
+        }
     }
 
     public void loadIndex()
     {
+        if ( _starts?.Length > 0)
+        {
+            //Debug.WriteLine($"=========INDEX: starts={_starts?.Length} ends={_ends?.Length}");
+            //Debug.WriteLine($"===========INDEX LAST: start={_starts?[^1]} end={_ends?[^1]}");
 
+        }
         // 1) Charger l'index une fois
         (_starts, _ends) = JsonToBinaryIndex.LoadAll("data/bin/_index.bin");
     }
@@ -584,7 +664,12 @@ public sealed partial class CandleChartControl
 
     private bool IsAtEndOfFile()
     {
+        //Debug.WriteLine($"[IsAtEndOfFile] idx={_currentIdx} windowStart={_windowStart} maxStart(_fileCount)={Math.Max(0, _fileCount - WindowCount)} maxStart(file.Count)={Math.Max(0, (_file?.Count ?? 0) - WindowCount)}");
         long maxStart = Math.Max(0, _fileCount - WindowCount);
+        if (_windowStart == 3000)
+        {
+            //Debug.WriteLine("");
+        }
         return _windowStart >= maxStart;
     }
 

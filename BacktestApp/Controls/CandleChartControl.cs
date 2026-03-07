@@ -64,7 +64,7 @@ public sealed partial class CandleChartControl : Control
     private readonly uint[] _v = new uint[WindowCount];
 
     // NOTE: SymbolSize vient de MmapCandleFile (déclaré dans fichier 2)
-    private readonly byte[] _sym = new byte[WindowCount * MmapCandleFile.SymbolSize];
+    private byte[] _sym = new byte[WindowCount * MmapCandleFile.SymbolSize];
 
     private MmapCandleFile? _file;
     private long _fileCount;

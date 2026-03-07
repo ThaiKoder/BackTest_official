@@ -1,4 +1,7 @@
-﻿namespace BacktestApp.Controls;
+﻿using Avalonia;
+using Avalonia.Media.TextFormatting;
+
+namespace BacktestApp.Controls;
 
 public sealed partial class CandleChartControl
 {
@@ -34,4 +37,51 @@ public sealed partial class CandleChartControl
         int mid = _windowLoaded / 2;
         _centerTimeSec = TsNsToEpochSeconds(_ts[mid]);
     }
+
+
+    // ✅ NOUVEAU : simuler une taille de control (Bounds) en test
+    internal void Test_SetBoundsForTest(double width, double height)
+    {
+        // Si Bounds est read-only chez toi, remplace par une variable interne
+        // ou un "GetPlotRect" spécial test.
+        // Si Bounds est accessible en lecture seule, on contourne en appelant directement EnsureWindowAroundView
+        // avec un Rect "plot" cohérent.
+        _testBounds = new Rect(0, 0, width, height);
+    }
+
+    // ✅ NOUVEAU : tick UI-like (appelle EnsureWindowAroundView)
+    internal void Test_TickEdgeTimerOnce()
+    {
+        if (_file is null) return;
+        if (_windowLoaded <= 0) return;
+
+        // plot rect comme UI
+        var bounds = GetTestBoundsOrReal();
+        var plot = GetPlotRect(new Rect(0, 0, bounds.Width, bounds.Height));
+        if (plot.Width <= 0 || plot.Height <= 0) return;
+
+        EnsureWindowAroundView(plot);
+    }
+
+    // --- Support test bounds ---
+    private Rect? _testBounds;
+
+    private Rect GetTestBoundsOrReal()
+    {
+        // si tu ne peux pas setter Bounds, on utilise une valeur de test
+        if (_testBounds.HasValue) return _testBounds.Value;
+        return new Rect(0, 0, Bounds.Width, Bounds.Height);
+    }
+
+
+
+
+
+
+
+
+
+    // IndexReader
+    internal IndexReader Test_indexReader() => new IndexReader();
+
 }
