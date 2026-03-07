@@ -37,7 +37,6 @@ public class LoadTest
         }
     }
 
-    //Test3 : Parcourir liste fichiers index et qu'ils sont dans l'ordre croissant
     [Fact]
     public void Test3_IndexFiles_AreIncreasing()
     {
@@ -54,7 +53,11 @@ public class LoadTest
         {
             var (start, end) = chart.getFileIndex.Read(i);
 
+            // Vérifie que les dates sont dans l'ordre croissant
             if (!(lastDate <= start)) Assert.True(false, $"Le fichier index n'est pas dans l'ordre croissant à l'index {i}: {start} <= {lastDate}");
+
+            // Vérifie qu'il n'y a pas de doublons (start == lastDate)
+            if (lastDate == start) Assert.True(false, $"Le fichier index contient des doublons à l'index {i}: {start} == {lastDate}");
 
             lastDate = start;
         }
@@ -63,8 +66,6 @@ public class LoadTest
 
     }
 
-
-    //Test4 : Parcourir liste fichiers index et vérifier pas de doublons
 
     //Test5 : Parcourir liste fichiers index et vérifier x premiers et x derniers records en fonction de l'index courant
 
