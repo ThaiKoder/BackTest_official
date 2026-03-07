@@ -60,6 +60,22 @@ public sealed partial class CandleChartControl
                 MemoryMappedFileAccess.Read);
         }
 
+        public (uint StartYmd, uint EndYmd) Read(long index)
+        {
+            if (_accessor == null)
+                throw new InvalidOperationException("Index non chargé.");
+
+            if (index < 0 || index >= _count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            long offset = index * IndexSize;
+
+            uint startYmd = _accessor.ReadUInt32(offset);
+            uint endYmd = _accessor.ReadUInt32(offset + 4);
+
+            return (startYmd, endYmd);
+        }
+
 
         public void Dispose()
         {

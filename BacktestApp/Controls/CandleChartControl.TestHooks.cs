@@ -81,17 +81,16 @@ public sealed partial class CandleChartControl
 
 
 
+    public FileIndex getFileIndex => _testFileIndex;
 
-    // IndexReader
-    public FileIndex index;
-    internal long Test_IndexCount => index.Count;
+    internal long Test_IndexCount => getFileIndex.Count;
 
     internal FileIndex Test_indexReader() => new FileIndex();
 
     internal void Test_LoadIndexFile(string path)
     {
-        index = Test_indexReader();
-        index.Load(path);
+        _testFileIndex = Test_indexReader();
+        _testFileIndex.Load(path);
     }
 
 

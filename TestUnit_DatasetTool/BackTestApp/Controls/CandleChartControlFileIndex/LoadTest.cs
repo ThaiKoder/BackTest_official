@@ -1,7 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using Xunit;
+﻿using Avalonia;
 using BacktestApp.Controls;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using Xunit;
 
 
 namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlFileIndex;
@@ -45,13 +48,18 @@ public class LoadTest
         long count = chart.Test_IndexCount;
         Assert.True(count > 0, "Le fichier index doit contenir au moins un record.");
 
-        //for (int i = 1; i < count; i++)
-        //{
-        //    var prev = chart.Test_GetIndexValue(i - 1);
-        //    var curr = chart.Test_GetIndexValue(i);
+        uint lastDate = 0;
 
-        //    Assert.True(curr > prev, $"L'index n'est pas croissant à la position {i} ({prev} -> {curr})");
-        //}
+        for (int i = 0; i < count; i++)
+        {
+            var (start, end) = chart.getFileIndex.Read(i);
+
+            if (!(lastDate <= start)) Assert.True(false, $"Le fichier index n'est pas dans l'ordre croissant à l'index {i}: {start} <= {lastDate}");
+
+            lastDate = start;
+        }
+
+        Assert.True(true, "Tous les fichiers index sont dans l'ordre croissant.");
 
     }
 
