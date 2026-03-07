@@ -153,6 +153,22 @@ public sealed partial class CandleChartControl
                 return new FileCursorStep(-1, -1, range, new List<FileItem>(), new List<FileItem>(), new List<FileItem>());
 
             int step = range + 1;
+
+            if (_hasState &&
+            _window != null &&
+            _range == range &&
+            _currentIdx == cursorIdx &&
+            _window[_windowSize - 1].Idx == -1)
+                    {
+                        return new FileCursorStep(
+                            _currentIdx,
+                            -1,
+                            _range,
+                            ToList(_window),
+                            new List<FileItem>(),
+                            new List<FileItem>());
+                    }
+
             int expectedNext = _currentIdx >= 0 ? _currentIdx + step : -1;
             bool canIncremental =
                 _hasState &&
@@ -185,9 +201,9 @@ public sealed partial class CandleChartControl
             var added = FilterNonEmpty(window);
             var removed = new List<FileItem>();
 
-            int nextCursorIdx = cursorIdx + (range + 1);
-            if (nextCursorIdx >= _count)
-                nextCursorIdx = -1;
+            int nextCursorIdx = _window![_windowSize - 1].Idx == -1
+                ? -1
+                : cursorIdx + (range + 1);
 
             return new FileCursorStep(cursorIdx, nextCursorIdx, range, window, added, removed);
         }
@@ -230,9 +246,9 @@ public sealed partial class CandleChartControl
 
             var window = ToList(_window!);
 
-            int nextCursorIdx = cursorIdx + step;
-            if (nextCursorIdx >= _count)
-                nextCursorIdx = -1;
+            int nextCursorIdx = _window![size - 1].Idx == -1
+                ? -1
+                : cursorIdx + step;
 
             return new FileCursorStep(cursorIdx, nextCursorIdx, range, window, added, removed);
         }

@@ -122,6 +122,16 @@ public class LoadTest
         Assert.Equal(new[] { 9, 10, 11, 12, 13, 14, -1 }, s4.Window.Select(x => x.Idx).ToArray());
         Assert.Equal(new[] { 12, 13, 14 }, s4.Added.Select(x => x.Idx).ToArray());
         Assert.Equal(new[] { 5, 6, 7, 8 }, s4.Removed.Select(x => x.Idx).ToArray());
+
+
+        // STEP 5 : appel après fin → rien ne change
+        var s5 = chart.FilesNext(s4.CurrentIdx, range);
+
+        Assert.Equal(12, s5.CurrentIdx);
+        Assert.Equal(-1, s5.NextCursorIdx);
+        Assert.Equal(new[] { 9, 10, 11, 12, 13, 14, -1 }, s5.Window.Select(x => x.Idx).ToArray());
+        Assert.Empty(s5.Added);
+        Assert.Empty(s5.Removed);
     }
 
 
