@@ -40,6 +40,7 @@ public class LoadTest
     [Fact]
     public void Test3_IndexFiles_AreIncreasing()
     {
+        int nbElement = 817;
         var chart = new global::BacktestApp.Controls.CandleChartControl();
 
         chart.Test_LoadIndexFile("data/bin/_index.bin");
@@ -47,7 +48,10 @@ public class LoadTest
         long count = chart.Test_IndexCount;
         Assert.True(count > 0, "Le fichier index doit contenir au moins un record.");
 
+        Assert.True(count == nbElement, $"La liste doit contenir {nbElement} element");
+
         uint lastDate = 0;
+        int nbDate = 0;
 
         for (int i = 0; i < count; i++)
         {
@@ -60,9 +64,11 @@ public class LoadTest
             if (lastDate == start) Assert.True(false, $"Le fichier index contient des doublons à l'index {i}: {start} == {lastDate}");
 
             lastDate = start;
+            nbDate++;
         }
 
         Assert.True(true, "Tous les fichiers index sont dans l'ordre croissant.");
+        Assert.True(nbDate == nbElement, $"La liste doit contenir 187 {nbElement} à la fin");
 
     }
 
