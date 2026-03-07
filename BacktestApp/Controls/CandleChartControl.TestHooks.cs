@@ -5,6 +5,8 @@ namespace BacktestApp.Controls;
 
 public sealed partial class CandleChartControl
 {
+    private FileIndex? _testFileIndex;
+
     // Indique le contrat courant (index dans _starts/_ends)
     internal int Test_CurrentIdx => _currentIdx;
 
@@ -80,14 +82,18 @@ public sealed partial class CandleChartControl
 
 
 
-
     // IndexReader
+    public FileIndex index;
+    internal long Test_IndexCount => index.Count;
+
     internal FileIndex Test_indexReader() => new FileIndex();
 
     internal void Test_LoadIndexFile(string path)
     {
-        var index = Test_indexReader();
+        index = Test_indexReader();
         index.Load(path);
     }
+
+
 
 }

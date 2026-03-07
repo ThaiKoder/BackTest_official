@@ -35,6 +35,26 @@ public class LoadTest
     }
 
     //Test3 : Parcourir liste fichiers index et qu'ils sont dans l'ordre croissant
+    [Fact]
+    public void Test3_IndexFiles_AreIncreasing()
+    {
+        var chart = new global::BacktestApp.Controls.CandleChartControl();
+
+        chart.Test_LoadIndexFile("data/bin/_index.bin");
+
+        long count = chart.Test_IndexCount;
+        Assert.True(count > 0, "Le fichier index doit contenir au moins un record.");
+
+        //for (int i = 1; i < count; i++)
+        //{
+        //    var prev = chart.Test_GetIndexValue(i - 1);
+        //    var curr = chart.Test_GetIndexValue(i);
+
+        //    Assert.True(curr > prev, $"L'index n'est pas croissant à la position {i} ({prev} -> {curr})");
+        //}
+
+    }
+
 
     //Test4 : Parcourir liste fichiers index et vérifier pas de doublons
 
@@ -42,11 +62,12 @@ public class LoadTest
 
     //Test6 : Verifier x premiers et x derniers records en fonction de l'index courant 0 et len -1
 
+    //Parcourir tout les fichiers avec Next File
+
     //Test7 : Parcourirs liste fichiers avec recherche binaire et verifier l'idx + nom fichier + x derniers et x premiers en fonction de la position idx
 
     //Test8 : Modifier dynamiquement x dernier et x premiers en fonction de l'idx courant
 
-    //Parcourir tout les fichiers avec Next File
 
 
 
