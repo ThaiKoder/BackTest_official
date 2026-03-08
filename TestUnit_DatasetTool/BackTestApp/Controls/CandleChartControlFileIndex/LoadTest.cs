@@ -135,6 +135,26 @@ public class LoadTest
 
 
     //Parcourir tout les fichiers avec Next File
+    private uint lastDate = 0;
+    HashSet<uint> listUniqueDate = new HashSet<uint>();
+    private bool FileExistsForIndex(CandleChartControl.FileIndex.FileItem fileRecord)
+    {
+        string folder = "data/bin";
+        string file = $"glbx-mdp3-{fileRecord.StartYmd}-{fileRecord.EndYmd}.ohlcv-1m.bin";
+        string path = Path.Combine(folder, file);
+
+        Assert.True(fileRecord.StartYmd > lastDate, $"Vérification du fichier {file} avec date {fileRecord.StartYmd} > lastDate {lastDate}");
+        lastDate = fileRecord.StartYmd;
+
+        if (!listUniqueDate.Add(fileRecord.StartYmd))
+        {
+            // Existait déjà donc doublon
+            Assert.True(false, $"Le fichier {file} avec date {fileRecord.StartYmd} est un doublon (déjà vu).");
+        }
+
+
+        return File.Exists(path);
+    }
 
     [Fact]
     public void Test5_FilesNext_Range3_Iterates_Whole_List()
@@ -184,8 +204,6 @@ public class LoadTest
                     var (start, end) = chart.getFileIndex.Read(item.Idx);
                     Assert.Equal(start, item.StartYmd);
                     Assert.Equal(end, item.EndYmd);
-
-                    //Verifie si le fichier existe
                 }
             }
 
@@ -199,13 +217,8 @@ public class LoadTest
                 expectedRemoved = Array.Empty<int>();
                 foreach (var aFile in step.Added)
                 {
-                    string folder = "data/bin";
-                    string file = $"glbx-mdp3-{aFile.StartYmd}-{aFile.EndYmd}.ohlcv-1m.bin";
-
-                    string path = Path.Combine(folder, file);
-
-                    bool exists = File.Exists(path);
-
+                    //Verifie si le fichier existe
+                    bool exists = FileExistsForIndex(aFile);
                     if (exists) totalFile++;
                 }
             }
@@ -227,13 +240,8 @@ public class LoadTest
 
                 foreach (var aFile in step.Added)
                 {
-                    string folder = "data/bin";
-                    string file = $"glbx-mdp3-{aFile.StartYmd}-{aFile.EndYmd}.ohlcv-1m.bin";
-
-                    string path = Path.Combine(folder, file);
-
-                    bool exists = File.Exists(path);
-
+                    //Verifie si le fichier existe
+                    bool exists = FileExistsForIndex(aFile);
                     if (exists) totalFile++;
                 }
 
