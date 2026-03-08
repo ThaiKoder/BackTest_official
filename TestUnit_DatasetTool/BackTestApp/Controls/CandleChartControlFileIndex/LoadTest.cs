@@ -151,6 +151,7 @@ public class LoadTest
         int cursor = 0;
         int previousCursor = -1;
         int stepNumber = 0;
+        int totalFile = 0;
 
         global::BacktestApp.Controls.CandleChartControl.FileIndex.FileCursorStep lastStep = null!;
 
@@ -183,6 +184,8 @@ public class LoadTest
                     var (start, end) = chart.getFileIndex.Read(item.Idx);
                     Assert.Equal(start, item.StartYmd);
                     Assert.Equal(end, item.EndYmd);
+
+                    //Verifie si le fichier existe
                 }
             }
 
@@ -194,6 +197,17 @@ public class LoadTest
             {
                 expectedAdded = expectedWindow.Where(x => x != -1).ToArray();
                 expectedRemoved = Array.Empty<int>();
+                foreach (var aFile in step.Added)
+                {
+                    string folder = "data/bin";
+                    string file = $"glbx-mdp3-{aFile.StartYmd}-{aFile.EndYmd}.ohlcv-1m.bin";
+
+                    string path = Path.Combine(folder, file);
+
+                    bool exists = File.Exists(path);
+
+                    if (exists) totalFile++;
+                }
             }
             else
             {
@@ -209,6 +223,20 @@ public class LoadTest
                 expectedRemoved = prevWindow
                     .Where(x => x != -1 && !expectedWindow.Contains(x))
                     .ToArray();
+
+
+                foreach (var aFile in step.Added)
+                {
+                    string folder = "data/bin";
+                    string file = $"glbx-mdp3-{aFile.StartYmd}-{aFile.EndYmd}.ohlcv-1m.bin";
+
+                    string path = Path.Combine(folder, file);
+
+                    bool exists = File.Exists(path);
+
+                    if (exists) totalFile++;
+                }
+
             }
 
             Assert.Equal(expectedAdded, step.Added.Select(x => x.Idx).ToArray());
@@ -240,7 +268,11 @@ public class LoadTest
 
         Assert.Empty(finalNoOp.Added);
         Assert.Empty(finalNoOp.Removed);
+        Assert.True(cursor+1==totalFile, $"Parcours complet de la liste avec {cursor + 1} étapes et {totalFile} fichiers vérifiés.");
+        Assert.True(totalFile == 817, $"Parcours complet de la liste pour 817 fichiers et {totalFile} fichiers vérifiés.");
     }
+
+
     //Test6 : Verifier x premiers et x derniers records en fonction de l'index courant 0 et len -1
 
 
