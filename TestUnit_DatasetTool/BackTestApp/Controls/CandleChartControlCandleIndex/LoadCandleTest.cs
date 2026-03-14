@@ -110,40 +110,64 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
             int firstCandleCursor = 0;
 
             // 4) Un seul CandlesNext
-            var candleStep = chart.CandlesNext(firstCandleCursor, candleRange);
+            //var candleStep = chart.CandlesNext(firstCandleCursor, candleRange);
+            var candleStep = chart.CandlesNext(0, candleRange);
+
 
             Assert.True(candleStep.CurrentIdx >= 0, "CurrentIdx candle doit être valide après le premier CandlesNext.");
 
             Debug.WriteLine($"[TEST] candle currentIdx = {candleStep.CurrentIdx}");
             Debug.WriteLine($"[TEST] candle window count = {candleStep.Window.Count}");
 
-            // 5) Debug de toutes les candles de la fenêtre courante
-            foreach (var candle in candleStep.Window)
+            Debug.WriteLine($"{chart.Test_CandleCount}");
+
+            int totalRead = 0;
+
+            while (candleStep.NextCursorIdx != -1)
             {
+                foreach (var candle in candleStep.Added)
+                {
+                    if (candle.Idx == -1)
+                    {
+                        Debug.WriteLine($"[CANDLE] idx=-1 (candle invalide, probablement un placeholder pour le début de la fenêtre)");
+                        Debug.WriteLine($"[CANDLE] ts={candle.Ts} o={candle.O} h={candle.H} l={candle.L} c={candle.C} v={candle.V} sym={candle.Sym}");
+                        continue;
 
-                if (candle.Idx == -1) continue;
+                    }
 
-                byte symbol = candle.Sym;
+                    byte symbol = candle.Sym;
 
-                long sec = candle.Ts / 1_000_000_000L;
-                long ns = candle.Ts % 1_000_000_000L;
+                    long sec = candle.Ts / 1_000_000_000L;
+                    var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
 
-                var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
+                    //    Debug.WriteLine(
+                    //        $"[CANDLE] idx={candle.Idx} " +
+                    //        $"ts={dt:yyyy-MM-dd HH:mm:ss} " +
+                    //        $"o={candle.O} " +
+                    //        $"h={candle.H} " +
+                    //        $"l={candle.L} " +
+                    //        $"c={candle.C} " +
+                    //        $"v={candle.V} " +
+                    //        $"sym={symbol}");
 
-                Debug.WriteLine(
-                    $"[CANDLE] idx={candle.Idx} " +
-                    $"ts={dt:yyyy-MM-dd HH:mm:ss} " +
-                    $"o={candle.O} " +
-                    $"h={candle.H} " +
-                    $"l={candle.L} " +
-                    $"c={candle.C} " +
-                    $"v={candle.V} " +
-                    $"sym={symbol}");
+                    totalRead++;
+                }
+
+        
+                candleStep = chart.CandlesNext(candleStep.NextCursorIdx, candleRange);
+
             }
 
+
+
+            // 5) Debug de toutes les candles de la fenêtre courante
+
+            Assert.True(totalRead > 0, "Au moins une itération de lecture de candles doit avoir eu lieu.");
+            Assert.True(totalRead == chart.Test_CandleCount, $"Le nombre total de lectures de candles ({totalRead}) doit correspondre au nombre de candles dans le fichier ({chart.Test_CandleCount}).");
+            
             // Assert minimal
             Assert.NotNull(candleStep.Window);
-            Assert.NotEmpty(candleStep.Window);
+            Assert.Empty(candleStep.Window); // Fin fichier
         }
     }
 }
