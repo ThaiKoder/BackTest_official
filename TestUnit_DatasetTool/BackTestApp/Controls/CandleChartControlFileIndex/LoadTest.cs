@@ -134,7 +134,7 @@ public class LoadTest
     }
 
 
-    //Parcourir tout les fichiers avec Next File
+    //FULL TEST Parcourir tout les fichiers avec Next File
     private uint lastDate = 0;
     HashSet<uint> listUniqueDate = new HashSet<uint>();
     private bool FileExistsForIndex(CandleChartControl.FileIndex.FileItem fileRecord)
@@ -179,6 +179,11 @@ public class LoadTest
         {
             var step = chart.FilesNext(cursor, range);
             stepNumber++;
+
+            if (previousCursor != -1)
+            {
+                Assert.Equal(previousCursor + stepSize, cursor);
+            }
 
             // Vérifie CurrentIdx
             Assert.Equal(cursor, step.CurrentIdx);
