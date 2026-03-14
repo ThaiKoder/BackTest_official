@@ -184,6 +184,10 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
             int totalFilesRead = 0;
             int totalCandlesRead = 0;
 
+            long? previousTs = null;
+            var uniqueTs = new HashSet<long>();
+
+
             while (true)
             {
                 var fileStep = chart.FilesNext(fileCursor, fileRange);
@@ -212,18 +216,50 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
                     {
                         foreach (var candle in candleStep.Added)
                         {
-                            if (candle.Idx == -1)
-                                continue;
+
 
                             long sec = candle.Ts / 1_000_000_000L;
                             long ns = candle.Ts % 1_000_000_000L;
                             var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
+
+                            if (candle.Idx == -1)
+                                continue;
+
+
+                            // 1) ordre strict des timestamps
+                            if (previousTs.HasValue)
+                            {
+
+                                long? psec = previousTs / 1_000_000_000L;
+                                long? pns = previousTs % 1_000_000_000L;
+                                var pdt = DateTimeOffset.FromUnixTimeSeconds((long)psec).UtcDateTime;
+
+                                if (! (candle.Ts > previousTs.Value))
+                                {
+                                    Debug.WriteLine($"[ERROR] Timestamp non croissant détecté: currentTs={candle.Ts} (dt={dt:yyyy-MM-dd HH:mm:ss}.{ns:D9}) <= previousTs={previousTs.Value} (pdt={pdt:yyyy-MM-dd HH:mm:ss}.{pns:D9}) " +
+                                        $"(fileIdx={currentFileIdx}, candleIdx={candle.Idx})");
+                                }
+                                Assert.True(
+                                    candle.Ts > previousTs.Value,
+                                    $"Timestamp non croissant: currentTs={candle.Ts} <= previousTs={previousTs.Value} " +
+                                    $"(fileIdx={currentFileIdx}, candleIdx={candle.Idx})");
+                            }
+
+                            // 2) pas de doublon global
+                            bool added = uniqueTs.Add(candle.Ts);
+                            Assert.True(
+                                added,
+                                $"Doublon de timestamp détecté: ts={candle.Ts} " +
+                                $"(fileIdx={currentFileIdx}, candleIdx={candle.Idx})");
+
 
                             Debug.WriteLine(
                                 $"[CANDLE] fileIdx={currentFileIdx} " +
                                 $"candleIdx={candle.Idx} " +
                                 $"ts={dt:yyyy-MM-dd HH:mm:ss}.{ns:D9} " +
                                 $"o={candle.O} h={candle.H} l={candle.L} c={candle.C} v={candle.V} sym={(char)candle.Sym}");
+
+                            previousTs = candle.Ts;
 
                             totalReadForThisFile++;
                             totalCandlesRead++;
