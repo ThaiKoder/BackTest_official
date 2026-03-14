@@ -1,5 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Media.TextFormatting;
+using System;
+using System.IO;
 
 namespace BacktestApp.Controls;
 
@@ -97,5 +99,34 @@ public sealed partial class CandleChartControl
     }
 
 
+
+
+    //CandlesNext
+    private CandleIndex? _testCandleIndex;
+
+    public CandleIndex getCandleIndex => _testCandleIndex!;
+
+    public CandleIndex.CandleCursorStep CandlesNext(int cursorIdx, int range)
+        => _testCandleIndex!.CandlesNext(cursorIdx, range);
+
+    internal long Test_CandleCount => _testCandleIndex?.Count ?? 0;
+    internal CandleIndex Test_candleReader() => new CandleIndex();
+
+    internal void Test_CandlesLoadFromCurrentFileIndex(int fileIdx)
+    {
+        if (_testFileIndex is null)
+            throw new InvalidOperationException("L'index fichier doit être chargé avant de charger les candles.");
+
+        var (startYmd, endYmd) = getFileIndex.Read(fileIdx);
+
+        string path = Path.Combine(
+            "data",
+            "bin",
+            $"glbx-mdp3-{startYmd}-{endYmd}.ohlcv-1m.bin");
+
+        _testCandleIndex?.Dispose();
+        _testCandleIndex = Test_candleReader();
+        _testCandleIndex.Load(path, 3);
+    }
 
 }
