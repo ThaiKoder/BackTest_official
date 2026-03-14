@@ -169,5 +169,89 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
             Assert.NotNull(candleStep.Window);
             Assert.Empty(candleStep.Window); // Fin fichier
         }
+
+        [Fact]
+        public void Test_Read_All_Candles_From_All_Files_Using_FilesNext_Added()
+        {
+            var chart = new global::BacktestApp.Controls.CandleChartControl();
+
+            chart.Test_LoadIndexFile("data/bin/_index.bin");
+
+            int fileRange = 3;
+            int candleRange = 3;
+
+            int fileCursor = 0;
+            int totalFilesRead = 0;
+            int totalCandlesRead = 0;
+
+            while (true)
+            {
+                var fileStep = chart.FilesNext(fileCursor, fileRange);
+
+                Debug.WriteLine(
+                    $"[FILES] current={fileStep.CurrentIdx} next={fileStep.NextCursorIdx} " +
+                    $"window=[{string.Join(", ", fileStep.Window.Select(f => f.Idx))}] " +
+                    $"added=[{string.Join(", ", fileStep.Added.Select(f => f.Idx))}]");
+
+                foreach (var file in fileStep.Added)
+                {
+                    if (file.Idx == -1)
+                        continue;
+
+                    int currentFileIdx = file.Idx;
+
+                    Debug.WriteLine($"================ FILE {currentFileIdx} =================");
+
+                    chart.Test_CandlesLoadFromCurrentFileIndex(currentFileIdx);
+
+                    var candleStep = chart.CandlesNext(0, candleRange);
+
+                    int totalReadForThisFile = 0;
+
+                    while (true)
+                    {
+                        foreach (var candle in candleStep.Added)
+                        {
+                            if (candle.Idx == -1)
+                                continue;
+
+                            long sec = candle.Ts / 1_000_000_000L;
+                            long ns = candle.Ts % 1_000_000_000L;
+                            var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
+
+                            Debug.WriteLine(
+                                $"[CANDLE] fileIdx={currentFileIdx} " +
+                                $"candleIdx={candle.Idx} " +
+                                $"ts={dt:yyyy-MM-dd HH:mm:ss}.{ns:D9} " +
+                                $"o={candle.O} h={candle.H} l={candle.L} c={candle.C} v={candle.V} sym={(char)candle.Sym}");
+
+                            totalReadForThisFile++;
+                            totalCandlesRead++;
+                        }
+
+                        if (candleStep.NextCursorIdx == -1)
+                            break;
+
+                        candleStep = chart.CandlesNext(candleStep.NextCursorIdx, candleRange);
+                    }
+
+                    Assert.Equal(
+                        chart.Test_CandleCount,
+                        totalReadForThisFile);
+
+                    totalFilesRead++;
+                }
+
+                if (fileStep.NextCursorIdx == -1)
+                    break;
+
+                fileCursor = fileStep.NextCursorIdx;
+            }
+
+            Assert.True(totalFilesRead > 0);
+            Assert.True(totalCandlesRead > 0);
+            Assert.Equal(chart.Test_IndexCount, totalFilesRead);
+        }
+
     }
 }
