@@ -82,7 +82,7 @@ public sealed partial class CandleChartControl
 
 
 
-
+    //FilesNext
     public FileIndex getFileIndex => _testFileIndex;
 
     public FileIndex.FileCursorStep FilesNext(int cursorIdx, int range)
