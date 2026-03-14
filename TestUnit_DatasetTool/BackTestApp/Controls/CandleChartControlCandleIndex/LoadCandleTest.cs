@@ -122,6 +122,7 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
             Debug.WriteLine($"{chart.Test_CandleCount}");
 
             int totalRead = 0;
+            long lastTs = -1;
 
             while (candleStep.NextCursorIdx != -1)
             {
@@ -149,6 +150,24 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
                     //        $"c={candle.C} " +
                     //        $"v={candle.V} " +
                     //        $"sym={symbol}");
+
+                    Assert.True(lastTs != candle.Ts, $"Dupplication candle {dt}");
+
+
+                    if (candle.V == 37)
+                    {
+                        Debug.WriteLine("");
+                    }
+                    if (lastTs != candle.Ts)
+                    {
+                        lastTs = candle.Ts;
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[ERROR] Timestamp dupliqué détecté: ts={candle.Ts} (dt={dt:yyyy-MM-dd HH:mm:ss}) " +
+                            $"(fileIdx={currentFileIdx}, candleIdx={candle.Idx})");
+                    }
+
 
                     totalRead++;
                 }

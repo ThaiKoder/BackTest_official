@@ -300,6 +300,10 @@ namespace DatasetTool
 
                     if (quarter == candle.SymbolCode && _lastTsNs != candle.TsNs)
                     {
+                        if (candle.TsNs == 1275865560000000000)
+                        {
+                            Debug.WriteLine($"Debug: Ts={candle.TsNs} O={candle.O} H={candle.H} L={candle.L} C={candle.C} V={candle.V} Sym={candle.SymbolCode} Quarter={quarter}");
+                        }
 
                         bw.Write(candle.TsNs);
                         bw.Write(candle.O);

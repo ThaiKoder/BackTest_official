@@ -124,9 +124,19 @@ internal static class Program
                     currentDate = ts;
                     currentList = new List<byte>();
                     contractsByDate[ts] = currentList;
-                
 
-                currentList!.Add(symbol);
+
+                if (ts != lastDate)
+                {
+                    nbDates++;
+                    lastDate = ts;
+                } else
+                {
+                    Debug.WriteLine("Dooublonssse de date détectée !");
+                }
+
+
+                    currentList!.Add(symbol);
                 Console.WriteLine(
                     $"{dto:O} | {symbol} | O={o} H={h} L={l} C={c} V={v}");
 
@@ -410,8 +420,8 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
-        createIndex();
-        return 0;
+        //createIndex();
+        //return 0;
 
         //////////////
 
@@ -434,7 +444,7 @@ internal static class Program
         ///////////
 
         //return await WriteJCMain(args);
-        //return await ReadJC(args);
+        return await ReadJC(args);
     }
 
 
