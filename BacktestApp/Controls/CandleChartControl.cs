@@ -68,10 +68,10 @@ public sealed partial class CandleChartControl : Control
     private const double GapMaxPx = 4.0;
 
     private const int VisibleCount = 10;
-    private const int WindowCount = 2048; // divided by 4 to get candle in view
+    private const int WindowCount = 10*4; // divided by 4 to get candle in view
 
     private const int UiFileRange = 3;
-    private const int UiCandleRange = 2048;
+    private const int UiCandleRange = WindowCount / 2;
 
     // =========================
     // Interaction state
