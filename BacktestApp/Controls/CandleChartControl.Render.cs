@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using System;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace BacktestApp.Controls;
@@ -44,39 +45,38 @@ public sealed partial class CandleChartControl
     };
 
     private static readonly Pen SessionPen =
-    new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 2);
+        new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 2);
 
     private static readonly IBrush SessionBrush =
         new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
 
-
-    private void DrawSessionBoxes(DrawingContext ctx, Rect plot)
+    private void DrawSessionZone(DrawingContext ctx, Rect plot)
     {
-        var boxes = _sessionIndicator.Boxes;
+        if (_sessionOutput is null || !_sessionOutput.HasLast)
+            return;
 
-        for (int i = 0; i < boxes.Count; i++)
-        {
-            var b = boxes[i];
+        double x1 = WorldTimeToScreenX(
+            TsNsToEpochSeconds(_sessionOutput.LastStartTs),
+            plot);
 
-            double x1 = WorldTimeToScreenX(TsNsToEpochSeconds(b.StartTs), plot);
-            double x2 = WorldTimeToScreenX(TsNsToEpochSeconds(b.EndTs), plot);
+        double x2 = WorldTimeToScreenX(
+            TsNsToEpochSeconds(_sessionOutput.LastEndTs),
+            plot);
 
-            double yHigh = PriceToY(b.High, plot);
-            double yLow = PriceToY(b.Low, plot);
+        double yHigh = PriceToY(_sessionOutput.LastHigh, plot);
+        double yLow = PriceToY(_sessionOutput.LastLow, plot);
 
-            double left = Math.Min(x1, x2);
-            double width = Math.Abs(x2 - x1);
+        double left = Math.Min(x1, x2);
+        double width = Math.Abs(x2 - x1);
 
-            double top = Math.Min(yHigh, yLow);
-            double height = Math.Abs(yLow - yHigh);
+        double top = Math.Min(yHigh, yLow);
+        double height = Math.Abs(yLow - yHigh);
 
-            if (width <= 0 || height <= 0)
-                continue;
+        if (width <= 0 || height <= 0)
+            return;
 
-            var rect = new Rect(left, top, width, height);
-
-            ctx.DrawRectangle(SessionBrush, SessionPen, rect);
-        }
+        var rect = new Rect(left, top, width, height);
+        ctx.DrawRectangle(SessionBrush, SessionPen, rect);
     }
 
     public override void Render(DrawingContext ctx)
@@ -151,7 +151,15 @@ public sealed partial class CandleChartControl
             }
         }
 
-        DrawSessionBoxes(ctx, plot);
+        if (_sessionOutput is not null)
+        {
+            Debug.WriteLine(
+                $"STATE={_sessionOutput.State} | " +
+                $"LAST H={_sessionOutput.LastHigh} L={_sessionOutput.LastLow} | " +
+                $"PREV H={_sessionOutput.PreviousHigh} L={_sessionOutput.PreviousLow}"
+            );
+        }
+        DrawSessionZone(ctx, plot);
 
         // Mise à jour des axes dans des buffers fixes
         UpdateYAxisTicks(plot);

@@ -22,8 +22,9 @@ namespace BacktestApp.Controls;
 public sealed partial class CandleChartControl : Control
 {
     private readonly SessionHighLowIndicator _sessionIndicator = new();
-    
-    
+    private SessionHighLowIndicator.Output _sessionOutput;
+
+
     // =========================
     // Ring buffer
     // =========================

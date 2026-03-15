@@ -141,8 +141,7 @@ public sealed partial class CandleChartControl
                     candle.V,
                     candle.Sym);
 
-                // alimenter l'indicateur
-                _sessionIndicator.OnCandle(
+                _sessionOutput = _sessionIndicator.OnCandle(
                     candle.Ts,
                     candle.H,
                     candle.L,
@@ -158,6 +157,8 @@ public sealed partial class CandleChartControl
             for (int i = 0; i < step.Added.Count; i++)
             {
                 var candle = step.Added[i];
+                if (candle.Idx == -1)
+                    continue;
 
                 RingPushBack(
                     candle.Ts,
@@ -168,8 +169,7 @@ public sealed partial class CandleChartControl
                     candle.V,
                     candle.Sym);
 
-                // alimenter l'indicateur uniquement avec les nouvelles candles
-                _sessionIndicator.OnCandle(
+                _sessionOutput = _sessionIndicator.OnCandle(
                     candle.Ts,
                     candle.H,
                     candle.L,
