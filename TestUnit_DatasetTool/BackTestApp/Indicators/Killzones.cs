@@ -13,199 +13,45 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
     public class Killzones
     {
         [Fact]
-        public void Test_CandlesNext_RingBuffer_And_KillZones_BlackBox_Should_Work_On_Whole_File()
+        public void LoadNext_Should_Compare_AfternoonHigh_Vs_MorningHigh_After_Each_Completed_Reentry_And_Exit()
         {
+            // Arrange
             var chart = new global::BacktestApp.Controls.CandleChartControl();
 
+            // Référence hors chemin UI : nombre total attendu de fichiers et de candles
             chart.Test_LoadIndexFile("data/bin/_index.bin");
 
-            int fileRange = 3;
-            int candleRange = 3;
-            int candleStepSize = candleRange + 1;
+            long expectedTotalFiles = chart.Test_IndexCount;
+            long expectedTotalCandles = 0;
 
-            var fileStep = chart.FilesNext(0, fileRange);
-            Assert.True(fileStep.CurrentIdx >= 0);
-
-            int currentFileIdx = fileStep.CurrentIdx;
-            chart.Test_CandlesLoadFromCurrentFileIndex(currentFileIdx);
-
-            int count = (int)chart.Test_CandleCount;
-            Assert.True(count > 0, "Le fichier courant doit contenir au moins une candle.");
-
-            // Killzones black-box
-            var killzones = new List<SessionHighLowIndicator>
+            for (int fileIdx = 0; fileIdx < expectedTotalFiles; fileIdx++)
             {
-                new SessionHighLowIndicator("Morning",   new TimeSpan(10, 0, 0), new TimeSpan(12, 0, 0)),
-                new SessionHighLowIndicator("Afternoon", new TimeSpan(14, 0, 0), new TimeSpan(16, 0, 0)),
-            };
-
-            int cursor = 0;
-            int iteration = 0;
-
-            var allSeen = new HashSet<int>();
-            global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleCursorStep? previous = null;
-
-            while (true)
-            {
-                var current = chart.CandlesNext(cursor, candleRange);
-                iteration++;
-
-                Assert.Equal(cursor, current.CurrentIdx);
-
-                var currentWindow = current.Window.Select(x => x.Idx).ToArray();
-                var currentAdded = current.Added.Select(x => x.Idx).ToArray();
-                var currentRemoved = current.Removed.Select(x => x.Idx).ToArray();
-
-                // fenêtre attendue
-                int[] expectedWindow = new int[candleRange * 2 + 1];
-                int p = 0;
-                for (int i = cursor - candleRange; i <= cursor + candleRange; i++)
-                    expectedWindow[p++] = (i < 0 || i >= count) ? -1 : i;
-
-                Assert.Equal(expectedWindow, currentWindow);
-
-                // Added global unique
-                foreach (var idx in currentAdded)
-                {
-                    Assert.True(idx >= 0 && idx < count, $"Added contient un idx invalide: {idx}");
-                    Assert.True(allSeen.Add(idx), $"Idx ajouté plusieurs fois dans le parcours global: {idx}");
-                }
-
-                if (previous == null)
-                {
-                    Assert.Equal(expectedWindow.Where(x => x != -1).ToArray(), currentAdded);
-                    Assert.Empty(currentRemoved);
-                }
-                else
-                {
-                    var prevWindow = previous.Window.Select(x => x.Idx).ToArray();
-
-                    int[] expectedAdded = expectedWindow
-                        .Where(x => x != -1 && !prevWindow.Contains(x))
-                        .ToArray();
-
-                    int[] expectedRemoved = prevWindow
-                        .Where(x => x != -1 && !expectedWindow.Contains(x))
-                        .ToArray();
-
-                    Assert.Equal(expectedAdded, currentAdded);
-                    Assert.Equal(expectedRemoved, currentRemoved);
-
-                    var prevKept = prevWindow
-                        .Where(x => x != -1 && !currentRemoved.Contains(x))
-                        .ToArray();
-
-                    var currentValid = currentWindow
-                        .Where(x => x != -1)
-                        .ToArray();
-
-                    var expectedCurrentValid = prevKept
-                        .Concat(currentAdded)
-                        .ToArray();
-
-                    Assert.Equal(expectedCurrentValid, currentValid);
-                    Assert.Equal(previous.CurrentIdx + candleStepSize, current.CurrentIdx);
-                }
-
-                // --- TEST BOITE NOIRE KILLZONES SUR CHAQUE CANDLE AJOUTEE ---
-                foreach (var candle in current.Added)
-                {
-                    if (candle.Idx == -1)
-                        continue;
-
-                    long sec = candle.Ts / 1_000_000_000L;
-                    long ns = candle.Ts % 1_000_000_000L;
-                    var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
-
-                    Debug.WriteLine(
-                        $"[CANDLE] idx={candle.Idx} ts={dt:yyyy-MM-dd HH:mm:ss}.{ns:D9} " +
-                        $"H={candle.H} L={candle.L}");
-
-                    foreach (var kz in killzones)
-                    {
-                        var output = kz.OnCandle(
-                            candle.Ts,
-                            candle.H,
-                            candle.L,
-                            1.0);
-
-                        Debug.WriteLine(
-                            $"    [KILLZONE {output.Name}] " +
-                            $"State={output.State} | " +
-                            $"Last=({output.LastHigh}, {output.LastLow}) " +
-                            $"Prev=({output.PreviousHigh}, {output.PreviousLow}) " +
-                            $"LastTs=[{output.LastStartTs} -> {output.LastEndTs}] " +
-                            $"PrevTs=[{output.PreviousStartTs} -> {output.PreviousEndTs}]");
-
-                        // Assertions minimales boîte noire
-                        Assert.Equal(kz.Name, output.Name);
-
-                        if (output.HasLast)
-                        {
-                            Assert.True(output.LastHigh >= output.LastLow,
-                                $"Killzone {output.Name}: LastHigh doit être >= LastLow");
-                            Assert.True(output.LastStartTs >= 0);
-                            Assert.True(output.LastEndTs >= 0);
-                        }
-
-                        if (output.HasPrevious)
-                        {
-                            Assert.True(output.PreviousHigh >= output.PreviousLow,
-                                $"Killzone {output.Name}: PreviousHigh doit être >= PreviousLow");
-                            Assert.True(output.PreviousStartTs >= 0);
-                            Assert.True(output.PreviousEndTs >= 0);
-                        }
-                    }
-                }
-
-                bool hasRightMinusOne = expectedWindow[^1] == -1;
-                int expectedNext = hasRightMinusOne ? -1 : cursor + candleStepSize;
-                Assert.Equal(expectedNext, current.NextCursorIdx);
-
-                previous = current;
-
-                if (current.NextCursorIdx == -1)
-                    break;
-
-                cursor = current.NextCursorIdx;
-
-                Assert.True(iteration <= count + 2, $"Boucle suspecte: iteration={iteration}, count={count}");
+                chart.Test_CandlesLoadFromCurrentFileIndex(fileIdx);
+                expectedTotalCandles += chart.Test_CandleCount;
             }
 
-            Assert.Equal(count, allSeen.Count);
-            Assert.Equal(Enumerable.Range(0, count).ToArray(), allSeen.OrderBy(x => x).ToArray());
+            Assert.True(expectedTotalFiles > 0, "L'index doit contenir au moins un fichier.");
+            Assert.True(expectedTotalCandles > 0, "Le nombre total de candles doit être > 0.");
 
-            var finalNoOp = chart.CandlesNext(previous!.CurrentIdx, candleRange);
+            // Vrai chemin UI
+            chart.Test_InitializeFilesAndCandlesMode();
 
-            Assert.Equal(previous.CurrentIdx, finalNoOp.CurrentIdx);
-            Assert.Equal(-1, finalNoOp.NextCursorIdx);
-            Assert.Equal(
-                previous.Window.Select(x => x.Idx).ToArray(),
-                finalNoOp.Window.Select(x => x.Idx).ToArray());
-            Assert.Empty(finalNoOp.Added);
-            Assert.Empty(finalNoOp.Removed);
-        }
+            int initialFileIdx = chart.Test_GetUiLoadedFileIdx();
+            int initialCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
+            var initialCandles = chart.Test_GetUiWindowCandles().ToArray();
 
-        [Fact]
-        public void Test_CandlesNext_Should_Compare_AfternoonHigh_Above_MorningHigh_Once_After_MorningExit()
-        {
-            var chart = new global::BacktestApp.Controls.CandleChartControl();
+            Assert.True(initialFileIdx >= 0, $"FileIdx initial invalide: {initialFileIdx}");
+            Assert.True(initialCurrentIdx >= 0, $"CurrentIdx initial invalide: {initialCurrentIdx}");
+            Assert.NotNull(initialCandles);
+            Assert.NotEmpty(initialCandles);
 
-            chart.Test_LoadIndexFile("data/bin/_index.bin");
+            var seenFiles = new HashSet<int> { initialFileIdx };
+            var seenTs = new HashSet<long>();
 
-            int fileRange = 3;
-            int candleRange = 3;
-            int candleStepSize = candleRange + 1;
+            long totalCandlesRead = 0;
+            long? previousGlobalTs = null;
 
-            var fileStep = chart.FilesNext(0, fileRange);
-            Assert.True(fileStep.CurrentIdx >= 0);
-
-            int currentFileIdx = fileStep.CurrentIdx;
-            chart.Test_CandlesLoadFromCurrentFileIndex(currentFileIdx);
-
-            int count = (int)chart.Test_CandleCount;
-            Assert.True(count > 0, "Le fichier courant doit contenir au moins une candle.");
-
+            // Kill zones
             var morning = new SessionHighLowIndicator(
                 "Morning",
                 new TimeSpan(10, 0, 0),
@@ -216,196 +62,225 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 new TimeSpan(14, 0, 0),
                 new TimeSpan(16, 0, 0));
 
-            int cursor = 0;
-            int iteration = 0;
+            long? lastSeenMorningEndTs = null;
+            long? lastSeenAfternoonEndTs = null;
 
-            var allSeen = new HashSet<int>();
-            global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleCursorStep? previous = null;
+            long? pendingMorningEndTs = null;
+            double? pendingMorningHigh = null;
 
-            SessionHighLowIndicator.Output? lastMorningOutput = null;
-            bool comparisonArmed = false;
-            int comparisonCount = 0;
+            int compareOk = 0;
+            int compareKo = 0;
+            int skippedNoMorning = 0;
+            int skippedDateMismatch = 0;
 
-            int nbKillZonesOk = 0;
-            int nbKillZonesKo = 0;
-
-            while (true)
+            static DateTime UtcFromNs(long tsNs)
             {
-                var current = chart.CandlesNext(cursor, candleRange);
-                iteration++;
+                long sec = tsNs / 1_000_000_000L;
+                return DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
+            }
 
-                Assert.Equal(cursor, current.CurrentIdx);
-
-                var currentWindow = current.Window.Select(x => x.Idx).ToArray();
-                var currentAdded = current.Added.Select(x => x.Idx).ToArray();
-                var currentRemoved = current.Removed.Select(x => x.Idx).ToArray();
-
-                // fenêtre attendue
-                int[] expectedWindow = new int[candleRange * 2 + 1];
-                int p = 0;
-                for (int i = cursor - candleRange; i <= cursor + candleRange; i++)
-                    expectedWindow[p++] = (i < 0 || i >= count) ? -1 : i;
-
-                Assert.Equal(expectedWindow, currentWindow);
-
-                // Added global unique
-                foreach (var idx in currentAdded)
+            void ProcessCandle(global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleItem candle)
+            {
+                // 1) Contrôle parcours global
+                if (previousGlobalTs.HasValue)
                 {
-                    Assert.True(idx >= 0 && idx < count, $"Added contient un idx invalide: {idx}");
-                    Assert.True(allSeen.Add(idx), $"Idx ajouté plusieurs fois dans le parcours global: {idx}");
+                    Assert.True(
+                        candle.Ts > previousGlobalTs.Value,
+                        $"Timestamp non croissant détecté. currentTs={candle.Ts} <= previousTs={previousGlobalTs.Value}");
                 }
 
-                if (previous == null)
+                Assert.True(
+                    seenTs.Add(candle.Ts),
+                    $"Timestamp dupliqué détecté: {candle.Ts}");
+
+                previousGlobalTs = candle.Ts;
+                totalCandlesRead++;
+
+                // 2) Feed des kill zones
+                var m = morning.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
+                var a = afternoon.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
+
+                // 3) Détection d'une nouvelle Morning terminée
+                if (m is not null && m.HasLast)
                 {
-                    Assert.Equal(expectedWindow.Where(x => x != -1).ToArray(), currentAdded);
-                    Assert.Empty(currentRemoved);
+                    if (!lastSeenMorningEndTs.HasValue || m.LastEndTs != lastSeenMorningEndTs.Value)
+                    {
+                        lastSeenMorningEndTs = m.LastEndTs;
+                        pendingMorningEndTs = m.LastEndTs;
+                        pendingMorningHigh = m.LastHigh;
+
+                        Debug.WriteLine(
+                            $"[MORNING CLOSED] " +
+                            $"date={UtcFromNs(m.LastEndTs):yyyy-MM-dd} " +
+                            $"end={UtcFromNs(m.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
+                            $"high={m.LastHigh}");
+                    }
+                }
+
+                // 4) Détection d'une nouvelle Afternoon terminée
+                if (a is not null && a.HasLast)
+                {
+                    if (!lastSeenAfternoonEndTs.HasValue || a.LastEndTs != lastSeenAfternoonEndTs.Value)
+                    {
+                        lastSeenAfternoonEndTs = a.LastEndTs;
+
+                        if (!pendingMorningEndTs.HasValue || !pendingMorningHigh.HasValue)
+                        {
+                            skippedNoMorning++;
+
+                            Debug.WriteLine(
+                                $"[AFTERNOON CLOSED - SKIP NO MORNING] " +
+                                $"date={UtcFromNs(a.LastEndTs):yyyy-MM-dd} " +
+                                $"end={UtcFromNs(a.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
+                                $"high={a.LastHigh}");
+                            return;
+                        }
+
+                        var morningDate = UtcFromNs(pendingMorningEndTs.Value).Date;
+                        var afternoonDate = UtcFromNs(a.LastEndTs).Date;
+
+                        if (morningDate != afternoonDate)
+                        {
+                            skippedDateMismatch++;
+
+                            Debug.WriteLine(
+                                $"[AFTERNOON CLOSED - SKIP DATE MISMATCH] " +
+                                $"morningDate={morningDate:yyyy-MM-dd} " +
+                                $"afternoonDate={afternoonDate:yyyy-MM-dd} " +
+                                $"morningHigh={pendingMorningHigh.Value} " +
+                                $"afternoonHigh={a.LastHigh}");
+
+                            pendingMorningEndTs = null;
+                            pendingMorningHigh = null;
+                            return;
+                        }
+
+                        bool isOk = a.LastHigh > pendingMorningHigh.Value;
+
+                        if (isOk)
+                            compareOk++;
+                        else
+                            compareKo++;
+
+                        Debug.WriteLine(
+                            $"[COMPARE] date={afternoonDate:yyyy-MM-dd} " +
+                            $"morningHigh={pendingMorningHigh.Value} " +
+                            $"afternoonHigh={a.LastHigh} " +
+                            $"result={(isOk ? "OK" : "KO")}");
+
+                        // On consomme ce cycle.
+                        // Il faudra rerentrer puis resortir d'une nouvelle Morning
+                        // avant de pouvoir refaire une comparaison.
+                        pendingMorningEndTs = null;
+                        pendingMorningHigh = null;
+                    }
+                }
+            }
+
+            // Fenêtre initiale : traitée une seule fois
+            foreach (var candle in initialCandles)
+            {
+                ProcessCandle(candle);
+            }
+
+            int iterations = 0;
+            int previousFileIdx = initialFileIdx;
+            int previousCurrentIdx = initialCurrentIdx;
+
+            // Act
+            while (chart.Test_AdvanceCandlesNext())
+            {
+                iterations++;
+
+                int currentFileIdx = chart.Test_GetUiLoadedFileIdx();
+                int currentIdx = chart.Test_GetUiCandleCurrentIdx();
+                int nextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
+
+                var addedCandles = chart.Test_GetLastAddedCandles().ToArray();
+                var loadedTs = chart.Test_GetLoadedTimestamps();
+
+                Assert.True(currentFileIdx >= 0, $"FileIdx invalide après loadNext: {currentFileIdx}");
+                Assert.True(currentIdx >= 0, $"CurrentIdx invalide après loadNext: {currentIdx}");
+                Assert.NotNull(loadedTs);
+                Assert.NotEmpty(loadedTs);
+
+                seenFiles.Add(currentFileIdx);
+
+                // Cohérence progression fichier / candle
+                if (currentFileIdx == previousFileIdx)
+                {
+                    Assert.True(
+                        currentIdx > previousCurrentIdx,
+                        $"Le curseur candle doit avancer dans le même fichier. " +
+                        $"fileIdx={currentFileIdx}, before={previousCurrentIdx}, after={currentIdx}");
                 }
                 else
                 {
-                    var prevWindow = previous.Window.Select(x => x.Idx).ToArray();
-
-                    int[] expectedAdded = expectedWindow
-                        .Where(x => x != -1 && !prevWindow.Contains(x))
-                        .ToArray();
-
-                    int[] expectedRemoved = prevWindow
-                        .Where(x => x != -1 && !expectedWindow.Contains(x))
-                        .ToArray();
-
-                    Assert.Equal(expectedAdded, currentAdded);
-                    Assert.Equal(expectedRemoved, currentRemoved);
-
-                    var prevKept = prevWindow
-                        .Where(x => x != -1 && !currentRemoved.Contains(x))
-                        .ToArray();
-
-                    var currentValid = currentWindow
-                        .Where(x => x != -1)
-                        .ToArray();
-
-                    var expectedCurrentValid = prevKept
-                        .Concat(currentAdded)
-                        .ToArray();
-
-                    Assert.Equal(expectedCurrentValid, currentValid);
-                    Assert.Equal(previous.CurrentIdx + candleStepSize, current.CurrentIdx);
+                    Assert.True(
+                        currentFileIdx > previousFileIdx,
+                        $"Le fileIdx doit avancer strictement. before={previousFileIdx}, after={currentFileIdx}");
                 }
 
-                // --- killzones black-box, candle par candle ---
-                foreach (var candle in current.Added)
+                // Fenêtre courante toujours croissante
+                for (int i = 1; i < loadedTs.Count; i++)
                 {
-                    if (candle.Idx == -1)
-                        continue;
-
-                    long sec = candle.Ts / 1_000_000_000L;
-                    long ns = candle.Ts % 1_000_000_000L;
-                    var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
-
-                    var morningOutput = morning.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
-                    var afternoonOutput = afternoon.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
-
-                    //Debug.WriteLine(
-                    //    $"[CANDLE] idx={candle.Idx} ts={dt:yyyy-MM-dd HH:mm:ss}.{ns:D9} " +
-                    //    $"MorningState={morningOutput.State} AfternoonState={afternoonOutput.State}");
-
-                    //Debug.WriteLine(
-                    //    $"    [Morning] Last=({morningOutput.LastHigh}, {morningOutput.LastLow}) " +
-                    //    $"Prev=({morningOutput.PreviousHigh}, {morningOutput.PreviousLow})");
-
-                    //Debug.WriteLine(
-                    //    $"    [Afternoon] Last=({afternoonOutput.LastHigh}, {afternoonOutput.LastLow}) " +
-                    //    $"Prev=({afternoonOutput.PreviousHigh}, {afternoonOutput.PreviousLow})");
-
-                    // Réarmement: dès qu'on rentre à nouveau dans Morning
-                    if (morningOutput.State == SessionHighLowIndicator.SessionState.In)
-                    {
-                        // On autorise une future comparaison au prochain In -> Out
-                        // mais on ne compare pas tant qu'on n'est pas ressorti.
-                    }
-
-                    // Détection de sortie de Morning : In -> Out
-                    bool justExitedMorning =
-                        lastMorningOutput is not null &&
-                        lastMorningOutput.State == SessionHighLowIndicator.SessionState.In &&
-                        morningOutput.State == SessionHighLowIndicator.SessionState.Out;
-
-                    if (justExitedMorning)
-                    {
-                        comparisonArmed = true;
-
-                        //Debug.WriteLine(
-                        //    $"    [ARM] Morning vient de sortir. " +
-                        //    $"Armed=true | MorningLastHigh={morningOutput.LastHigh}");
-                    }
-
-                    // Comparaison UNE SEULE FOIS après la sortie de Morning
-                    if (comparisonArmed &&
-                        morningOutput.HasLast &&
-                        afternoonOutput.HasLast)
-                    {
-                        bool afternoonHigher = afternoonOutput.LastHigh > morningOutput.LastHigh;
-
-                        //Debug.WriteLine(
-                        //    $"    [COMPARE ONCE] Afternoon.LastHigh={afternoonOutput.LastHigh} " +
-                        //    $"{(afternoonHigher ? ">" : "<=")} Morning.LastHigh={morningOutput.LastHigh}");
-
-                        // Assertion métier principale
-                        //Assert.True(
-                        //    afternoonOutput.LastHigh > morningOutput.LastHigh,
-                        //    $"Le high de la killzone Afternoon doit être > au high de Morning " +
-                        //    $"après la sortie de Morning. " +
-                        //    $"Afternoon.LastHigh={afternoonOutput.LastHigh}, Morning.LastHigh={morningOutput.LastHigh}");
-
-                        if (afternoonOutput.LastHigh > morningOutput.LastHigh)
-                        {
-                            nbKillZonesOk++;
-                            //Debug.WriteLine($"    [KILLZONE OK] Afternoon.LastHigh > Morning.LastHigh");
-                        }
-                        else
-                        {
-                            nbKillZonesKo++;
-                            //Debug.WriteLine($"    [KILLZONE KO] Afternoon.LastHigh <= Morning.LastHigh");
-                        }
-                        comparisonCount++;
-                        comparisonArmed = false;
-                    }
-
-                    lastMorningOutput = morningOutput;
+                    Assert.True(
+                        loadedTs[i] > loadedTs[i - 1],
+                        $"Les timestamps chargés doivent être strictement croissants. " +
+                        $"fileIdx={currentFileIdx}, i={i}, prev={loadedTs[i - 1]}, cur={loadedTs[i]}");
                 }
 
-                bool hasRightMinusOne = expectedWindow[^1] == -1;
-                int expectedNext = hasRightMinusOne ? -1 : cursor + candleStepSize;
-                Assert.Equal(expectedNext, current.NextCursorIdx);
+                // Seules les nouvelles candles Added sont traitées
+                foreach (var candle in addedCandles)
+                {
+                    ProcessCandle(candle);
+                }
 
-                previous = current;
+                previousFileIdx = currentFileIdx;
+                previousCurrentIdx = currentIdx;
 
-                if (current.NextCursorIdx == -1)
-                    break;
-
-                cursor = current.NextCursorIdx;
-
-                Assert.True(iteration <= count + 2, $"Boucle suspecte: iteration={iteration}, count={count}");
+                Assert.True(
+                    iterations <= expectedTotalCandles,
+                    $"Boucle suspecte: trop d'itérations. iterations={iterations}, expectedTotalCandles={expectedTotalCandles}, next={nextCursorIdx}");
             }
 
-            //Nombre killzones ok vs ko (pour info, pas d'assertion dessus car ça dépend des données)
-            Debug.WriteLine($"Killzones OK: {nbKillZonesOk}, KO: {nbKillZonesKo}");
+            // Assert final
+            Assert.True(iterations > 0, "Le test doit effectuer au moins un loadNext().");
 
-            Assert.Equal(count, allSeen.Count);
-            Assert.Equal(Enumerable.Range(0, count).ToArray(), allSeen.OrderBy(x => x).ToArray());
+            var finalLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
+            var finalCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
+            var finalNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
+            var finalTs = chart.Test_GetLoadedTimestamps();
 
-            var finalNoOp = chart.CandlesNext(previous!.CurrentIdx, candleRange);
+            Assert.True(finalLoadedFileIdx >= 0, $"FileIdx final invalide: {finalLoadedFileIdx}");
+            Assert.True(finalCurrentIdx >= 0, $"CurrentIdx final invalide: {finalCurrentIdx}");
+            Assert.Equal(-1, finalNextCursorIdx);
 
-            Assert.Equal(previous.CurrentIdx, finalNoOp.CurrentIdx);
-            Assert.Equal(-1, finalNoOp.NextCursorIdx);
-            Assert.Equal(
-                previous.Window.Select(x => x.Idx).ToArray(),
-                finalNoOp.Window.Select(x => x.Idx).ToArray());
-            Assert.Empty(finalNoOp.Added);
-            Assert.Empty(finalNoOp.Removed);
+            Assert.NotNull(finalTs);
+            Assert.NotEmpty(finalTs);
+
+            // Le test doit bien avoir parcouru tout l'index
+            Assert.Equal(expectedTotalFiles, seenFiles.Count);
+            Assert.Equal(expectedTotalCandles, totalCandlesRead);
+            Assert.Equal(expectedTotalCandles, seenTs.Count);
+
+            int totalComparisons = compareOk + compareKo;
+
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine("[KILLZONE SUMMARY]");
+            Debug.WriteLine($"filesRead={seenFiles.Count}/{expectedTotalFiles}");
+            Debug.WriteLine($"candlesRead={totalCandlesRead}/{expectedTotalCandles}");
+            Debug.WriteLine($"compareOk={compareOk}");
+            Debug.WriteLine($"compareKo={compareKo}");
+            Debug.WriteLine($"compareOkRate={(totalComparisons > 0 ? (double)compareOk / totalComparisons : 0):P2}");
+            Debug.WriteLine($"totalComparisons={totalComparisons}");
+            Debug.WriteLine($"skippedNoMorning={skippedNoMorning}");
+            Debug.WriteLine($"skippedDateMismatch={skippedDateMismatch}");
+            Debug.WriteLine("==================================================");
 
             Assert.True(
-                comparisonCount > 0,
-                "Le test doit effectuer au moins une comparaison Afternoon.LastHigh > Morning.LastHigh.");
+                totalComparisons > 0,
+                "Aucune comparaison Morning -> Afternoon n'a été produite.");
         }
     }
 }

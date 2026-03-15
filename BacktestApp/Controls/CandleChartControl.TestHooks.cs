@@ -244,4 +244,37 @@ public sealed partial class CandleChartControl
 
         return result;
     }
+
+
+    internal IReadOnlyList<CandleIndex.CandleItem> Test_GetUiWindowCandles()
+    {
+        if (_uiCandleStep is null)
+            return Array.Empty<CandleIndex.CandleItem>();
+
+        var result = new List<CandleIndex.CandleItem>(_uiCandleStep.Window.Count);
+
+        foreach (var candle in _uiCandleStep.Window)
+        {
+            if (candle.Idx != -1)
+                result.Add(candle);
+        }
+
+        return result;
+    }
+
+    internal IReadOnlyList<CandleIndex.CandleItem> Test_GetLastAddedCandles()
+    {
+        if (_uiCandleStep is null)
+            return Array.Empty<CandleIndex.CandleItem>();
+
+        var result = new List<CandleIndex.CandleItem>(_uiCandleStep.Added.Count);
+
+        foreach (var candle in _uiCandleStep.Added)
+        {
+            if (candle.Idx != -1)
+                result.Add(candle);
+        }
+
+        return result;
+    }
 }
