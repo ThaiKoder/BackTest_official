@@ -1,6 +1,7 @@
-﻿using System;
+﻿using DatasetTool;
+using System;
+using System.Collections.Generic;
 using System.IO;
-using DatasetTool;
 
 namespace BacktestApp.Controls;
 
@@ -10,6 +11,9 @@ public sealed partial class CandleChartControl
     private CandleIndex? _uiCandleIndex;
     private FileIndex.FileCursorStep? _uiFileStep;
     private CandleIndex.CandleCursorStep? _uiCandleStep;
+
+    private List<int> _uiPendingFileIdxs = new();
+    private int _uiPendingFilePos = -1;
 
     private int RingPhysicalIndex(int logicalIndex)
     {
@@ -91,6 +95,15 @@ public sealed partial class CandleChartControl
             return;
         }
 
+        // Premier batch : il faut traiter TOUS les fichiers valides du step initial
+        SetPendingFilesFromStep(_uiFileStep, useWindow: true);
+
+        if (_uiPendingFileIdxs.Count == 0)
+        {
+            DebugMessage.Write("[CandleChartControl] aucun fichier valide dans le premier step");
+            return;
+        }
+
         LoadCandlesForCurrentFileStep();
     }
 
@@ -99,7 +112,13 @@ public sealed partial class CandleChartControl
         if (_uiFileIndex == null || _uiFileStep == null)
             return;
 
-        var (startYmd, endYmd) = _uiFileIndex.Read(_uiFileStep.CurrentIdx);
+        if (_uiPendingFilePos < 0 || _uiPendingFilePos >= _uiPendingFileIdxs.Count)
+            return;
+
+        int fileIdx = _uiPendingFileIdxs[_uiPendingFilePos];
+
+        var (startYmd, endYmd) = _uiFileIndex.Read(fileIdx);
+        
         string filePath = Path.Combine(
             "data",
             "bin",
@@ -225,17 +244,89 @@ public sealed partial class CandleChartControl
 
     private bool AdvanceCandlesNext()
     {
-        if (_uiCandleIndex == null || _uiCandleStep == null)
+        if (_uiFileIndex == null || _uiFileStep == null)
             return false;
 
-        if (_uiCandleStep.NextCursorIdx == -1)
+        // Pas encore de candles chargées
+        if (_uiCandleIndex == null || _uiCandleStep == null)
         {
-            DebugMessage.Write("[CandleChartControl] fin du fichier courant pour CandlesNext");
+            if (_uiPendingFileIdxs.Count == 0)
+                return false;
+
+            LoadCandlesForCurrentFileStep();
+            return _uiCandleStep != null;
+        }
+
+        // 1) Continuer dans le fichier courant
+        if (_uiCandleStep.NextCursorIdx != -1)
+        {
+            _uiCandleStep = _uiCandleIndex.CandlesNext(_uiCandleStep.NextCursorIdx, UiCandleRange);
+            ApplyCandleStepToWindow(_uiCandleStep, resetView: false);
+            return true;
+        }
+
+        // 2) Fin du fichier courant => passer au fichier suivant déjà présent dans le step courant
+        if (MoveToNextPendingFileInCurrentStep())
+        {
+            LoadCandlesForCurrentFileStep();
+            return _uiCandleStep != null && _windowLoaded > 0;
+        }
+
+        // 3) Plus de fichiers en attente dans ce step => demander le step suivant de FilesNext
+        if (_uiFileStep.NextCursorIdx == -1)
+        {
+            DebugMessage.Write("[CandleChartControl] fin du dernier fichier pour FilesNext/CandlesNext");
             return false;
         }
 
-        _uiCandleStep = _uiCandleIndex.CandlesNext(_uiCandleStep.NextCursorIdx, UiCandleRange);
-        ApplyCandleStepToWindow(_uiCandleStep, resetView: false);
+        _uiFileStep = _uiFileIndex.FilesNext(_uiFileStep.NextCursorIdx, UiFileRange);
+
+        if (_uiFileStep.CurrentIdx < 0)
+        {
+            DebugMessage.Write("[CandleChartControl] fichier suivant invalide");
+            return false;
+        }
+
+        // Sur les steps suivants, seuls les nouveaux fichiers à droite doivent être traités
+        SetPendingFilesFromStep(_uiFileStep, useWindow: false);
+
+        if (_uiPendingFileIdxs.Count == 0)
+        {
+            DebugMessage.Write("[CandleChartControl] aucun fichier ajouté dans le step suivant");
+            return false;
+        }
+
+        LoadCandlesForCurrentFileStep();
+        return _uiCandleStep != null && _windowLoaded > 0;
+    }
+
+    private void SetPendingFilesFromStep(FileIndex.FileCursorStep step, bool useWindow)
+    {
+        _uiPendingFileIdxs.Clear();
+
+        var source = useWindow ? step.Window : step.Added;
+
+        foreach (var file in source)
+        {
+            if (file.Idx == -1)
+                continue;
+
+            _uiPendingFileIdxs.Add(file.Idx);
+        }
+
+        _uiPendingFilePos = 0;
+    }
+
+    private bool MoveToNextPendingFileInCurrentStep()
+    {
+        if (_uiPendingFileIdxs.Count == 0)
+            return false;
+
+        int nextPos = _uiPendingFilePos + 1;
+        if (nextPos >= _uiPendingFileIdxs.Count)
+            return false;
+
+        _uiPendingFilePos = nextPos;
         return true;
     }
 }

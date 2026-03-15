@@ -65,9 +65,8 @@ public sealed partial class CandleChartControl
     internal int Test_GetUiCandleNextCursorIdx()
         => _uiCandleStep?.NextCursorIdx ?? -1;
 
-    internal long Test_GetUiFileCount()
+    internal long Test_GetUiCurrentFileCandleCount()
         => _uiCandleIndex?.Count ?? 0;
-
     internal IReadOnlyList<long> Test_GetLoadedTimestamps()
     {
         var result = new long[_windowLoaded];
@@ -202,9 +201,17 @@ public sealed partial class CandleChartControl
 
 
 
+    internal int Test_GetUiLoadedFileIdx()
+    {
+        if (_uiPendingFilePos < 0 || _uiPendingFilePos >= _uiPendingFileIdxs.Count)
+            return -1;
+
+        return _uiPendingFileIdxs[_uiPendingFilePos];
+    }
 
 
-
+    internal long Test_GetUiIndexFileCount()
+    => _uiFileIndex?.Count ?? 0;
 
 
 
