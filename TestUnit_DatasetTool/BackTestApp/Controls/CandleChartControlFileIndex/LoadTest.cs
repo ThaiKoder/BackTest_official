@@ -285,6 +285,126 @@ public class LoadTest
         Assert.True(totalFile == 817, $"Parcours complet de la liste pour 817 fichiers et {totalFile} fichiers vérifiés.");
     }
 
+    [Fact]
+    public void Test6_FilesNext_RingBuffer_Should_Shift_And_Append_Correctly_On_Whole_Traversal()
+    {
+        var chart = new global::BacktestApp.Controls.CandleChartControl();
+        chart.Test_LoadIndexFile("data/bin/_index.bin");
+
+        int range = 3;
+        int count = (int)chart.Test_IndexCount;
+        int expectedFileCount = 817;
+        int stepSize = range + 1;
+
+        Assert.True(count > 0, "Le fichier index doit contenir au moins un record.");
+        Assert.Equal(expectedFileCount, count);
+
+        int cursor = 0;
+        int iteration = 0;
+
+        var allSeen = new HashSet<int>();
+        global::BacktestApp.Controls.CandleChartControl.FileIndex.FileCursorStep? previous = null;
+
+
+        while (true)
+        {
+            var current = chart.FilesNext(cursor, range);
+            iteration++;
+
+            Assert.Equal(cursor, current.CurrentIdx);
+
+            var currentWindow = current.Window.Select(x => x.Idx).ToArray();
+            var currentAdded = current.Added.Select(x => x.Idx).ToArray();
+            var currentRemoved = current.Removed.Select(x => x.Idx).ToArray();
+
+            // 1) Fenêtre logique attendue
+            int[] expectedWindow = new int[range * 2 + 1];
+            int p = 0;
+            for (int i = cursor - range; i <= cursor + range; i++)
+                expectedWindow[p++] = (i < 0 || i >= count) ? -1 : i;
+
+            Assert.Equal(expectedWindow, currentWindow);
+
+            // 2) Tous les index valides vus une seule fois globalement via Added
+            foreach (var idx in currentAdded)
+            {
+                Assert.True(idx >= 0 && idx < count, $"Added contient un idx invalide: {idx}");
+                Assert.True(allSeen.Add(idx), $"Idx ajouté plusieurs fois dans le parcours global: {idx}");
+            }
+
+            if (previous == null)
+            {
+                // Premier step : Added = tous les valides de la fenêtre, Removed vide
+                Assert.Equal(expectedWindow.Where(x => x != -1).ToArray(), currentAdded);
+                Assert.Empty(currentRemoved);
+            }
+            else
+            {
+                var prevWindow = previous.Window.Select(x => x.Idx).ToArray();
+
+                // 3) Vérifie Added / Removed attendus par différence
+                int[] expectedAdded = expectedWindow
+                    .Where(x => x != -1 && !prevWindow.Contains(x))
+                    .ToArray();
+
+                int[] expectedRemoved = prevWindow
+                    .Where(x => x != -1 && !expectedWindow.Contains(x))
+                    .ToArray();
+
+                Assert.Equal(expectedAdded, currentAdded);
+                Assert.Equal(expectedRemoved, currentRemoved);
+
+                // 4) Vérifie la propriété ring buffer sur les éléments valides uniquement
+                var prevKept = prevWindow
+                    .Where(x => x != -1 && !currentRemoved.Contains(x))
+                    .ToArray();
+
+                var currentValid = currentWindow
+                    .Where(x => x != -1)
+                    .ToArray();
+
+                var expectedCurrentValid = prevKept
+                    .Concat(currentAdded)
+                    .ToArray();
+
+                Assert.Equal(expectedCurrentValid, currentValid);
+
+                // 5) Le curseur doit avancer du step exact tant qu'on n'est pas en fin
+                Assert.Equal(previous.CurrentIdx + stepSize, current.CurrentIdx);
+            }
+
+            // 6) Vérifie NextCursorIdx
+            bool hasRightMinusOne = expectedWindow[^1] == -1;
+            int expectedNext = hasRightMinusOne ? -1 : cursor + stepSize;
+            Assert.Equal(expectedNext, current.NextCursorIdx);
+
+            previous = current;
+
+            if (current.NextCursorIdx == -1)
+                break;
+
+            cursor = current.NextCursorIdx;
+
+            // sécurité anti boucle infinie
+            Assert.True(iteration <= count + 2, $"Boucle suspecte: iteration={iteration}, count={count}");
+        }
+
+        // 7) On doit avoir vu tous les fichiers exactement une fois via Added
+        Assert.Equal(expectedFileCount, allSeen.Count);
+        Assert.Equal(count, allSeen.Count);
+        Assert.Equal(Enumerable.Range(0, count).ToArray(), allSeen.OrderBy(x => x).ToArray());
+
+        // 8) Appel après fin = no-op
+        var finalStep = chart.FilesNext(previous!.CurrentIdx, range);
+
+        Assert.Equal(previous.CurrentIdx, finalStep.CurrentIdx);
+        Assert.Equal(-1, finalStep.NextCursorIdx);
+        Assert.Equal(
+            previous.Window.Select(x => x.Idx).ToArray(),
+            finalStep.Window.Select(x => x.Idx).ToArray());
+        Assert.Empty(finalStep.Added);
+        Assert.Empty(finalStep.Removed);
+    }
 
     //Test6 : Verifier x premiers et x derniers records en fonction de l'index courant 0 et len -1
 
