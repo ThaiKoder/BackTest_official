@@ -119,6 +119,8 @@ public sealed partial class CandleChartControl
         {
             RingClear();
 
+            _sessionIndicator.Reset();
+
             int firstValidIdx = -1;
 
             for (int i = 0; i < step.Window.Count; i++)
@@ -130,7 +132,21 @@ public sealed partial class CandleChartControl
                 if (firstValidIdx == -1)
                     firstValidIdx = candle.Idx;
 
-                RingPushBack(candle.Ts, candle.O, candle.H, candle.L, candle.C, candle.V, candle.Sym);
+                RingPushBack(
+                    candle.Ts,
+                    candle.O,
+                    candle.H,
+                    candle.L,
+                    candle.C,
+                    candle.V,
+                    candle.Sym);
+
+                // alimenter l'indicateur
+                _sessionIndicator.OnCandle(
+                    candle.Ts,
+                    candle.H,
+                    candle.L,
+                    PriceScale);
             }
 
             _ringFirstGlobalIdx = Math.Max(0, firstValidIdx);
@@ -142,7 +158,22 @@ public sealed partial class CandleChartControl
             for (int i = 0; i < step.Added.Count; i++)
             {
                 var candle = step.Added[i];
-                RingPushBack(candle.Ts, candle.O, candle.H, candle.L, candle.C, candle.V, candle.Sym);
+
+                RingPushBack(
+                    candle.Ts,
+                    candle.O,
+                    candle.H,
+                    candle.L,
+                    candle.C,
+                    candle.V,
+                    candle.Sym);
+
+                // alimenter l'indicateur uniquement avec les nouvelles candles
+                _sessionIndicator.OnCandle(
+                    candle.Ts,
+                    candle.H,
+                    candle.L,
+                    PriceScale);
             }
         }
 
@@ -162,7 +193,6 @@ public sealed partial class CandleChartControl
 
         InvalidateVisual();
     }
-
 
     private void RebuildWindowFromStep(CandleIndex.CandleCursorStep step)
     {

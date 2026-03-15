@@ -32,16 +32,52 @@ public sealed partial class CandleChartControl
         new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x5A));
 
     private static readonly double[] NicePriceSteps =
-{
-    0.0001, 0.0002, 0.0005,
-    0.001,  0.002,  0.005,
-    0.01,   0.02,   0.05,
-    0.1,    0.2,    0.5,
-    1.0,    2.0,    5.0,
-    10.0,   20.0,   50.0,
-    100.0,  200.0,  500.0,
-    1000.0, 2000.0, 5000.0
-};
+    {
+        0.0001, 0.0002, 0.0005,
+        0.001,  0.002,  0.005,
+        0.01,   0.02,   0.05,
+        0.1,    0.2,    0.5,
+        1.0,    2.0,    5.0,
+        10.0,   20.0,   50.0,
+        100.0,  200.0,  500.0,
+        1000.0, 2000.0, 5000.0
+    };
+
+    private static readonly Pen SessionPen =
+    new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 2);
+
+    private static readonly IBrush SessionBrush =
+        new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
+
+
+    private void DrawSessionBoxes(DrawingContext ctx, Rect plot)
+    {
+        var boxes = _sessionIndicator.Boxes;
+
+        for (int i = 0; i < boxes.Count; i++)
+        {
+            var b = boxes[i];
+
+            double x1 = WorldTimeToScreenX(TsNsToEpochSeconds(b.StartTs), plot);
+            double x2 = WorldTimeToScreenX(TsNsToEpochSeconds(b.EndTs), plot);
+
+            double yHigh = PriceToY(b.High, plot);
+            double yLow = PriceToY(b.Low, plot);
+
+            double left = Math.Min(x1, x2);
+            double width = Math.Abs(x2 - x1);
+
+            double top = Math.Min(yHigh, yLow);
+            double height = Math.Abs(yLow - yHigh);
+
+            if (width <= 0 || height <= 0)
+                continue;
+
+            var rect = new Rect(left, top, width, height);
+
+            ctx.DrawRectangle(SessionBrush, SessionPen, rect);
+        }
+    }
 
     public override void Render(DrawingContext ctx)
     {
@@ -114,6 +150,8 @@ public sealed partial class CandleChartControl
                 ctx.FillRectangle(brush, body);
             }
         }
+
+        DrawSessionBoxes(ctx, plot);
 
         // Mise à jour des axes dans des buffers fixes
         UpdateYAxisTicks(plot);

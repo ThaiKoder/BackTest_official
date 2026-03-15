@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using BacktestApp.Indicators;
 
 namespace BacktestApp.Controls;
 
@@ -20,6 +21,9 @@ namespace BacktestApp.Controls;
 /// </summary>
 public sealed partial class CandleChartControl : Control
 {
+    private readonly SessionHighLowIndicator _sessionIndicator = new();
+    
+    
     // =========================
     // Ring buffer
     // =========================
