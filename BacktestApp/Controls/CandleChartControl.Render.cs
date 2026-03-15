@@ -307,13 +307,44 @@ public sealed partial class CandleChartControl
     }
     private static string FormatYAxisLabel(double price, double step)
     {
-        if (step >= 1_000_000_000) return price.ToString("0", CultureInfo.InvariantCulture);
-        if (step >= 1_000_000) return price.ToString("0", CultureInfo.InvariantCulture);
-        if (step >= 1000) return price.ToString("0", CultureInfo.InvariantCulture);
-        if (step >= 1) return price.ToString("0.##", CultureInfo.InvariantCulture);
-        if (step >= 0.01) return price.ToString("0.####", CultureInfo.InvariantCulture);
-        return price.ToString("0.########", CultureInfo.InvariantCulture);
+        int stepUnit = 50000000;
+        long raw = (long)Math.Round(price * PriceScale);
+        string s = raw.ToString(CultureInfo.InvariantCulture);
+
+        if (s.Length <= 4)
+            return s;
+
+        string leftL = s.Substring(0, s.Length - (s.Length - 6));
+        string leftM = s.Substring(0, s.Length - (s.Length - 4));
+        string leftS = s.Substring(0, s.Length - (s.Length - 2));
+        string leftXS = s.Substring(0, s.Length - (s.Length - 1));
+
+        string rightL = s.Substring(s.Length - 2);
+        string rightM = s.Substring(s.Length - 4);
+        string rightS = s.Substring(s.Length - 6);
+        string rightXS = s.Substring(s.Length - 8);
+
+        DebugMessage.Write($"{step}");
+
+        // zoom très large
+        if (step >= 2000000000) return $"{leftL}";
+
+
+        // zoom très medium
+        if (step >= 1000000000) return $"{leftM} -- {rightM.Substring(0, 2)}";
+
+        // zoom très small
+        if (step >= 200000000) return $"{leftS} -- {rightS.Substring(0, 2)}";
+
+        //// zoom moyen → 2 chiffres de précision
+        //if (step >= 1)
+        //    return $"{leftL} -- {right.Substring(0, 2)}";
+
+        //// zoom proche → précision complète
+        return $"{leftXS} -- {rightXS}";
     }
+
+
     private static double GetNiceStep(double rawStep)
     {
         if (rawStep <= 0 || !double.IsFinite(rawStep))
