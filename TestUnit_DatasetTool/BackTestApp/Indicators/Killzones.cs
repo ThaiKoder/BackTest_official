@@ -292,7 +292,9 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
         private enum ZoneMetric
         {
             High,
-            Low
+            Mid,
+            Low,
+            Range
         }
 
         [Fact]
@@ -302,17 +304,17 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // CONFIG TEST
             // ==================================================
             const string referenceZoneName = "Asian";
-            const string targetZoneName = "London";
+            const string targetZoneName = "NY AM";
 
-            const ZoneMetric referenceMetric = ZoneMetric.High;
-            const ZoneMetric targetMetric = ZoneMetric.Low;
+            const ZoneMetric referenceMetric = ZoneMetric.Low;
+            const ZoneMetric targetMetric = ZoneMetric.Mid;
 
             // Exemples :
             // target > reference   => (targetValue, referenceValue) => targetValue > referenceValue
             // target < reference   => (targetValue, referenceValue) => targetValue < referenceValue
             // target >= reference  => (targetValue, referenceValue) => targetValue >= referenceValue
             // target <= reference  => (targetValue, referenceValue) => targetValue <= referenceValue
-            static bool Comparison(double targetValue, double referenceValue) => targetValue < referenceValue;
+            static bool Comparison(double targetValue, double referenceValue) => referenceValue > targetValue;
 
             const bool enableExactExpectedCandleCount = false;   // false = ultra rapide
             const bool enableStrictUniqueTimestampCheck = true;  // peut être mis à false pour encore plus de vitesse
@@ -390,8 +392,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 return metric switch
                 {
                     ZoneMetric.High => output.LastHigh,
+                    ZoneMetric.Mid => (output.LastHigh + output.LastLow) / 2.0,
                     ZoneMetric.Low => output.LastLow,
-                    _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, null)
+                    ZoneMetric.Range => output.LastHigh - output.LastLow,
+                    _ => throw new ArgumentOutOfRangeException()
                 };
             }
 
