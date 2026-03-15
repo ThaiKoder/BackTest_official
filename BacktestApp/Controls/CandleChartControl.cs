@@ -10,6 +10,7 @@ using BacktestApp.Indicators;
 using BacktestApp.Indicators;
 using Avalonia.Media;
 using System.Collections.Generic;
+using static BacktestApp.Controls.DebugMessage;
 
 namespace BacktestApp.Controls;
 
@@ -109,7 +110,7 @@ public sealed partial class CandleChartControl : Control
             if (z == null)
                 continue;
 
-            Debug.WriteLine(
+            DebugMessage.Write(
                 $"{z.Name} | " +
                 $"LAST H={z.LastHigh} L={z.LastLow} | " +
                 $"PREV H={z.PreviousHigh} L={z.PreviousLow}");

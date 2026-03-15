@@ -69,7 +69,7 @@ public sealed partial class CandleChartControl
 
         public CandleIndex()
         {
-            Debug.WriteLine("CandleIndex Constructor");
+            DebugMessage.Write("CandleIndex Constructor");
         }
 
         public void Load(string filePath)

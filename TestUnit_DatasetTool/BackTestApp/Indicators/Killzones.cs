@@ -115,11 +115,11 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         pendingMorningEndTs = m.LastEndTs;
                         pendingMorningHigh = m.LastHigh;
 
-                        Debug.WriteLine(
-                            $"[MORNING CLOSED] " +
-                            $"date={UtcFromNs(m.LastEndTs):yyyy-MM-dd} " +
-                            $"end={UtcFromNs(m.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
-                            $"high={m.LastHigh}");
+                        //Debug.WriteLine(
+                        //    $"[MORNING CLOSED] " +
+                        //    $"date={UtcFromNs(m.LastEndTs):yyyy-MM-dd} " +
+                        //    $"end={UtcFromNs(m.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
+                        //    $"high={m.LastHigh}");
                     }
                 }
 
@@ -134,11 +134,11 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         {
                             skippedNoMorning++;
 
-                            Debug.WriteLine(
-                                $"[AFTERNOON CLOSED - SKIP NO MORNING] " +
-                                $"date={UtcFromNs(a.LastEndTs):yyyy-MM-dd} " +
-                                $"end={UtcFromNs(a.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
-                                $"high={a.LastHigh}");
+                            //Debug.WriteLine(
+                            //    $"[AFTERNOON CLOSED - SKIP NO MORNING] " +
+                            //    $"date={UtcFromNs(a.LastEndTs):yyyy-MM-dd} " +
+                            //    $"end={UtcFromNs(a.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
+                            //    $"high={a.LastHigh}");
                             return;
                         }
 
@@ -149,30 +149,30 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         {
                             skippedDateMismatch++;
 
-                            Debug.WriteLine(
-                                $"[AFTERNOON CLOSED - SKIP DATE MISMATCH] " +
-                                $"morningDate={morningDate:yyyy-MM-dd} " +
-                                $"afternoonDate={afternoonDate:yyyy-MM-dd} " +
-                                $"morningHigh={pendingMorningHigh.Value} " +
-                                $"afternoonHigh={a.LastHigh}");
+                            //Debug.WriteLine(
+                            //    $"[AFTERNOON CLOSED - SKIP DATE MISMATCH] " +
+                            //    $"morningDate={morningDate:yyyy-MM-dd} " +
+                            //    $"afternoonDate={afternoonDate:yyyy-MM-dd} " +
+                            //    $"morningHigh={pendingMorningHigh.Value} " +
+                            //    $"afternoonHigh={a.LastHigh}");
 
                             pendingMorningEndTs = null;
                             pendingMorningHigh = null;
                             return;
                         }
 
-                        bool isOk = a.LastHigh > pendingMorningHigh.Value;
+                        bool isOk = a.LastLow < m.LastHigh;
 
                         if (isOk)
                             compareOk++;
                         else
                             compareKo++;
 
-                        Debug.WriteLine(
-                            $"[COMPARE] date={afternoonDate:yyyy-MM-dd} " +
-                            $"morningHigh={pendingMorningHigh.Value} " +
-                            $"afternoonHigh={a.LastHigh} " +
-                            $"result={(isOk ? "OK" : "KO")}");
+                        //Debug.WriteLine(
+                        //    $"[COMPARE] date={afternoonDate:yyyy-MM-dd} " +
+                        //    $"morningHigh={pendingMorningHigh.Value} " +
+                        //    $"afternoonHigh={a.LastHigh} " +
+                        //    $"result={(isOk ? "OK" : "KO")}");
 
                         // On consomme ce cycle.
                         // Il faudra rerentrer puis resortir d'une nouvelle Morning
