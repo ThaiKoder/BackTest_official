@@ -35,21 +35,28 @@ public sealed partial class CandleChartControl : Control
         Pen Border);
 
     private readonly List<SessionZoneDefinition> _sessionZoneDefinitions = new()
-{
-    new SessionZoneDefinition(
-        "Morning",
-        new TimeSpan(10, 0, 0),
-        new TimeSpan(12, 0, 0),
-        new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
-        new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 2)),
+    {
+        new SessionZoneDefinition(
+            "Asian",
+            new TimeSpan(1, 0, 0),
+            new TimeSpan(5, 0, 0),
+            new SolidColorBrush(Color.FromArgb(20, 255, 0, 0)), //bg
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 0, 0)), 2)), //border
 
-    new SessionZoneDefinition(
-        "Afternoon",
-        new TimeSpan(14, 0, 0),
-        new TimeSpan(16, 0, 0),
-        new SolidColorBrush(Color.FromArgb(30, 100, 180, 255)),
-        new Pen(new SolidColorBrush(Color.FromArgb(255, 100, 180, 255)), 2))
-};
+        new SessionZoneDefinition(
+            "London",
+            new TimeSpan(7, 0, 0),
+            new TimeSpan(10, 0, 0),
+            new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)),
+
+        new SessionZoneDefinition(
+            "NY AM",
+            new TimeSpan(13, 0, 0),
+            new TimeSpan(16, 0, 0),
+            new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2))
+    };
 
     private readonly List<SessionHighLowIndicator> _sessionIndicators = new();
     private readonly List<SessionHighLowIndicator.Output?> _sessionOutputs = new();
