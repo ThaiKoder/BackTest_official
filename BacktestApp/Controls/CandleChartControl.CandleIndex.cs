@@ -14,6 +14,7 @@ public sealed partial class CandleChartControl
 
         private CandleSlot[]? _window;
         private int _windowSize;
+        private int _windowHead;
         private int _range = -1;
         private int _currentIdx = -1;
         private bool _hasState;
@@ -95,6 +96,7 @@ public sealed partial class CandleChartControl
         {
             _window = null;
             _windowSize = 0;
+            _windowHead = 0;
             _range = -1;
             _currentIdx = -1;
             _hasState = false;
@@ -152,16 +154,16 @@ public sealed partial class CandleChartControl
 
             // appel après fin : no-op comme FilesNext
             if (_hasState &&
-                _window != null &&
-                _range == range &&
-                _currentIdx == cursorIdx &&
-                _window[_windowSize - 1].Idx == -1)
+             _window != null &&
+             _range == range &&
+             _currentIdx == cursorIdx &&
+             GetAtLogical(_windowSize - 1).Idx == -1)
             {
                 return new CandleCursorStep(
                     _currentIdx,
                     -1,
                     _range,
-                    ToList(_window),
+                    ToListLogical(),
                     new List<CandleItem>(),
                     new List<CandleItem>());
             }
@@ -185,6 +187,7 @@ public sealed partial class CandleChartControl
             _range = range;
             _currentIdx = cursorIdx;
             _windowSize = range * 2 + 1;
+            _windowHead = 0;
             _window = new CandleSlot[_windowSize];
 
             int p = 0;
@@ -195,11 +198,11 @@ public sealed partial class CandleChartControl
 
             _hasState = true;
 
-            var window = ToList(_window);
+            var window = ToListLogical();
             var added = FilterNonEmpty(window);
             var removed = new List<CandleItem>();
 
-            int nextCursorIdx = _window[_windowSize - 1].Idx == -1
+            int nextCursorIdx = GetAtLogical(_windowSize - 1).Idx == -1
                 ? -1
                 : cursorIdx + (range + 1);
 
@@ -214,26 +217,25 @@ public sealed partial class CandleChartControl
             var removed = new List<CandleItem>(step);
             var added = new List<CandleItem>(step);
 
-            // 1) sortants à gauche
+            // 1) capturer les sortants logiques à gauche
             for (int i = 0; i < step && i < size; i++)
             {
-                var slot = _window![i];
+                var slot = GetAtLogical(i);
                 if (slot.Idx != -1)
                     removed.Add(ToItem(slot));
             }
 
-            // 2) décalage à gauche
-            int remain = size - step;
-            if (remain > 0)
-                Array.Copy(_window!, step, _window!, 0, remain);
+            // 2) avancer la tête logique
+            _windowHead = (_windowHead + step) % size;
 
-            // 3) nouveaux entrants à droite
+            // 3) écrire les nouveaux entrants dans les dernières positions logiques
             int rightStartIdx = _currentIdx + range + 1;
             for (int j = 0; j < step; j++)
             {
                 int newIdx = rightStartIdx + j;
                 var slot = ReadSlotOrEmpty(newIdx);
-                _window![remain + j] = slot;
+
+                SetAtLogical(size - step + j, slot);
 
                 if (slot.Idx != -1)
                     added.Add(ToItem(slot));
@@ -241,9 +243,9 @@ public sealed partial class CandleChartControl
 
             _currentIdx = cursorIdx;
 
-            var window = ToList(_window!);
+            var window = ToListLogical();
 
-            int nextCursorIdx = _window![size - 1].Idx == -1
+            int nextCursorIdx = GetAtLogical(size - 1).Idx == -1
                 ? -1
                 : cursorIdx + step;
 
@@ -280,16 +282,31 @@ public sealed partial class CandleChartControl
         private static CandleItem ToItem(CandleSlot s)
             => new CandleItem(s.Idx, s.Ts, s.O, s.H, s.L, s.C, s.V, s.Sym);
 
-        private static List<CandleItem> ToList(CandleSlot[] slots)
+        private List<CandleItem> ToListLogical()
         {
-            var list = new List<CandleItem>(slots.Length);
-            for (int i = 0; i < slots.Length; i++)
+            var list = new List<CandleItem>(_windowSize);
+            for (int i = 0; i < _windowSize; i++)
             {
-                var s = slots[i];
-                list.Add(ToItem(s));
+                list.Add(ToItem(GetAtLogical(i)));
             }
             return list;
         }
+
+        private int RingPhysicalIndex(int logicalIndex)
+        {
+            return (_windowHead + logicalIndex) % _windowSize;
+        }
+
+        private CandleSlot GetAtLogical(int logicalIndex)
+        {
+            return _window![RingPhysicalIndex(logicalIndex)];
+        }
+
+        private void SetAtLogical(int logicalIndex, CandleSlot slot)
+        {
+            _window![RingPhysicalIndex(logicalIndex)] = slot;
+        }
+
 
         private static List<CandleItem> FilterNonEmpty(List<CandleItem> items)
         {

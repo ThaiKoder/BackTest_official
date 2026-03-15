@@ -54,6 +54,7 @@ public sealed partial class CandleChartControl
 
         private FileSlot[]? _window;
         private int _windowSize;
+        private int _windowHead;
         private int _range = -1;
         private int _currentIdx = -1;
         private bool _hasState;
@@ -125,6 +126,7 @@ public sealed partial class CandleChartControl
         {
             _window = null;
             _windowSize = 0;
+            _windowHead = 0;
             _range = -1;
             _currentIdx = -1;
             _hasState = false;
@@ -158,13 +160,13 @@ public sealed partial class CandleChartControl
             _window != null &&
             _range == range &&
             _currentIdx == cursorIdx &&
-            _window[_windowSize - 1].Idx == -1)
+            GetAtLogical(_windowSize - 1).Idx == -1)
                     {
                         return new FileCursorStep(
                             _currentIdx,
                             -1,
                             _range,
-                            ToList(_window),
+                            ToListLogical(),
                             new List<FileItem>(),
                             new List<FileItem>());
                     }
@@ -187,6 +189,7 @@ public sealed partial class CandleChartControl
             _range = range;
             _currentIdx = cursorIdx;
             _windowSize = range * 2 + 1;
+            _windowHead = 0;
             _window = new FileSlot[_windowSize];
 
             int p = 0;
@@ -197,11 +200,11 @@ public sealed partial class CandleChartControl
 
             _hasState = true;
 
-            var window = ToList(_window);
+            var window = ToListLogical();
             var added = FilterNonEmpty(window);
             var removed = new List<FileItem>();
 
-            int nextCursorIdx = _window![_windowSize - 1].Idx == -1
+            int nextCursorIdx = GetAtLogical(_windowSize - 1).Idx == -1
                 ? -1
                 : cursorIdx + (range + 1);
 
@@ -215,44 +218,39 @@ public sealed partial class CandleChartControl
             var removed = new List<FileItem>(step);
             var added = new List<FileItem>(step);
 
-            // 1) Capturer les sortants (à gauche)
+            // 1) sortants logiques
             for (int i = 0; i < step && i < size; i++)
             {
-                var slot = _window![i];
+                var slot = GetAtLogical(i);
                 if (slot.Idx != -1)
-                    removed.Add(new FileItem(slot.Idx, slot.StartYmd, slot.EndYmd));
+                    removed.Add(ToItem(slot));
             }
 
-            // 2) Décaler à gauche
-            int remain = size - step;
-            if (remain > 0)
-            {
-                Array.Copy(_window!, step, _window!, 0, remain);
-            }
+            // 2) avancer la tête
+            _windowHead = (_windowHead + step) % size;
 
-            // 3) Calculer et ajouter les nouveaux entrants à droite
+            // 3) nouveaux entrants à droite
             int rightStartIdx = _currentIdx + range + 1;
             for (int j = 0; j < step; j++)
             {
                 int newIdx = rightStartIdx + j;
                 var slot = ReadSlotOrEmpty(newIdx);
-                _window![remain + j] = slot;
+                SetAtLogical(size - step + j, slot);
 
                 if (slot.Idx != -1)
-                    added.Add(new FileItem(slot.Idx, slot.StartYmd, slot.EndYmd));
+                    added.Add(ToItem(slot));
             }
 
             _currentIdx = cursorIdx;
 
-            var window = ToList(_window!);
+            var window = ToListLogical();
 
-            int nextCursorIdx = _window![size - 1].Idx == -1
+            int nextCursorIdx = GetAtLogical(size - 1).Idx == -1
                 ? -1
                 : cursorIdx + step;
 
             return new FileCursorStep(cursorIdx, nextCursorIdx, range, window, added, removed);
         }
-
         private static List<FileItem> ToList(FileSlot[] slots)
         {
             var list = new List<FileItem>(slots.Length);
@@ -295,6 +293,37 @@ public sealed partial class CandleChartControl
             }
 
             return result;
+        }
+
+
+        private int RingPhysicalIndex(int logicalIndex)
+        {
+            return (_windowHead + logicalIndex) % _windowSize;
+        }
+
+        private FileSlot GetAtLogical(int logicalIndex)
+        {
+            return _window![RingPhysicalIndex(logicalIndex)];
+        }
+
+        private void SetAtLogical(int logicalIndex, FileSlot slot)
+        {
+            _window![RingPhysicalIndex(logicalIndex)] = slot;
+        }
+
+        private static FileItem ToItem(FileSlot s)
+        {
+            return new FileItem(s.Idx, s.StartYmd, s.EndYmd);
+        }
+
+        private List<FileItem> ToListLogical()
+        {
+            var list = new List<FileItem>(_windowSize);
+            for (int i = 0; i < _windowSize; i++)
+            {
+                list.Add(ToItem(GetAtLogical(i)));
+            }
+            return list;
         }
 
 
