@@ -40,18 +40,21 @@ public sealed partial class CandleChartControl : Control
     private readonly double[] _yTickPrices = new double[MaxAxisTicks];
     private readonly double[] _yTickPixels = new double[MaxAxisTicks];
     private int _yTickCount;
+    private double _yTickStepPrice;
+
 
     // Pas dynamiques de l'axe X selon le zoom
     private static readonly int[] XAxisStepsSec =
     {
-    60,          // 1m
-    5 * 60,      // 5m
-    15 * 60,     // 15m
-    30 * 60,     // 30m
-    60 * 60,     // 1h
-    4 * 60 * 60, // 4h
-    24 * 60 * 60 // 1d
-};
+        60,          // 1m
+        5 * 60,      // 5m
+        15 * 60,     // 15m
+        30 * 60,     // 30m
+        60 * 60,     // 1h
+        4 * 60 * 60, // 4h
+        24 * 60 * 60 // 1d
+    };
+
 
     // =========================
     // Params rendu

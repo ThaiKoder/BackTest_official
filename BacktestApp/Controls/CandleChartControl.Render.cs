@@ -31,6 +31,18 @@ public sealed partial class CandleChartControl
     private static readonly IBrush DownBrush =
         new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x5A));
 
+    private static readonly double[] NicePriceSteps =
+{
+    0.0001, 0.0002, 0.0005,
+    0.001,  0.002,  0.005,
+    0.01,   0.02,   0.05,
+    0.1,    0.2,    0.5,
+    1.0,    2.0,    5.0,
+    10.0,   20.0,   50.0,
+    100.0,  200.0,  500.0,
+    1000.0, 2000.0, 5000.0
+};
+
     public override void Render(DrawingContext ctx)
     {
         base.Render(ctx);
@@ -108,16 +120,23 @@ public sealed partial class CandleChartControl
         UpdateXAxisTicks(plot);
 
         var leftAxisRect = new Rect(0, 0, plot.Left, bounds.Height);
-        ctx.FillRectangle(axisBgBrush, leftAxisRect);
+        ctx.FillRectangle(AxisBgBrush, leftAxisRect);
 
         var bottomAxisRect = new Rect(0, plot.Bottom, bounds.Width, bounds.Height - plot.Bottom);
-        ctx.FillRectangle(axisBgBrush, bottomAxisRect);
+        ctx.FillRectangle(AxisBgBrush, bottomAxisRect);
 
         ctx.DrawLine(AxisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
         ctx.DrawLine(AxisPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
 
-        DrawYAxisSimple(ctx, plot, AxisPen, LabelBrush);
-        DrawXAxisSimple(ctx, plot, AxisPen, LabelBrush);
+        using (ctx.PushClip(leftAxisRect))
+        {
+            DrawYAxisSimple(ctx, plot, AxisPen, LabelBrush);
+        }
+
+        using (ctx.PushClip(bottomAxisRect))
+        {
+            DrawXAxisSimple(ctx, plot, AxisPen, LabelBrush);
+        }
     }
 
     private int GetXAxisStepSeconds()
@@ -164,22 +183,6 @@ public sealed partial class CandleChartControl
         }
     }
 
-    private void UpdateYAxisTicks(Rect plot)
-    {
-        _yTickCount = 0;
-
-        const int ticks = 6;
-        for (int i = 0; i <= ticks && _yTickCount < MaxAxisTicks; i++)
-        {
-            double tt = i / (double)ticks;
-            double y = plot.Bottom - tt * plot.Height;
-            double price = YToPrice(y, plot);
-
-            _yTickPixels[_yTickCount] = y;
-            _yTickPrices[_yTickCount] = price;
-            _yTickCount++;
-        }
-    }
 
     private static string FormatXAxisLabel(double timeSec, int stepSec)
     {
@@ -202,7 +205,22 @@ public sealed partial class CandleChartControl
             double price = _yTickPrices[i];
 
             ctx.DrawLine(axisPen, new Point(plot.Left - 4, y), new Point(plot.Left, y));
-            DrawText(ctx, price.ToString("0.###", CultureInfo.InvariantCulture), 6, y - 8, labelBrush);
+
+            string label = FormatYAxisLabel(price, _yTickStepPrice);
+
+            var ft = new FormattedText(
+                label,
+                CultureInfo.InvariantCulture,
+                FlowDirection.LeftToRight,
+                new Typeface("Segoe UI"),
+                12,
+                labelBrush);
+
+            // aligné dans la marge de gauche
+            double textX = 4;
+            double textY = y - ft.Height / 2.0;
+
+            ctx.DrawText(ft, new Point(textX, textY));
         }
     }
 
@@ -246,4 +264,69 @@ public sealed partial class CandleChartControl
             height: Math.Max(0, bounds.Height - bottomAxisH - pad - pad)
         );
     }
+
+    private double GetYAxisStepPrice()
+    {
+        const double MinTickSpacingPx = 60.0;
+        double minStepPrice = _pricePerPixel * MinTickSpacingPx;
+        return GetNiceStep(minStepPrice);
+    }
+
+    private static double AlignPriceDown(double price, double step)
+    {
+        return Math.Floor(price / step) * step;
+    }
+
+    private void UpdateYAxisTicks(Rect plot)
+    {
+        _yTickCount = 0;
+        _yTickStepPrice = GetYAxisStepPrice();
+
+        double minPrice = _centerPrice - (plot.Height * _pricePerPixel) / 2.0;
+        double maxPrice = _centerPrice + (plot.Height * _pricePerPixel) / 2.0;
+
+        double p = AlignPriceDown(minPrice, _yTickStepPrice);
+
+        while (p <= maxPrice + _yTickStepPrice && _yTickCount < MaxAxisTicks)
+        {
+            double y = PriceToY(p, plot);
+
+            if (y >= plot.Top && y <= plot.Bottom)
+            {
+                _yTickPrices[_yTickCount] = p;
+                _yTickPixels[_yTickCount] = y;
+                _yTickCount++;
+            }
+
+            p += _yTickStepPrice;
+        }
+    }
+
+    private static string FormatYAxisLabel(double price, double step)
+    {
+        if (step >= 1_000_000_000) return price.ToString("0", CultureInfo.InvariantCulture);
+        if (step >= 1_000_000) return price.ToString("0", CultureInfo.InvariantCulture);
+        if (step >= 1000) return price.ToString("0", CultureInfo.InvariantCulture);
+        if (step >= 1) return price.ToString("0.##", CultureInfo.InvariantCulture);
+        if (step >= 0.01) return price.ToString("0.####", CultureInfo.InvariantCulture);
+        return price.ToString("0.########", CultureInfo.InvariantCulture);
+    }
+    private static double GetNiceStep(double minStep)
+    {
+        if (minStep <= 0 || !double.IsFinite(minStep))
+            return 1.0;
+
+        double exponent = Math.Floor(Math.Log10(minStep));
+        double baseValue = Math.Pow(10.0, exponent);
+        double fraction = minStep / baseValue;
+
+        double niceFraction;
+        if (fraction <= 1.0) niceFraction = 1.0;
+        else if (fraction <= 2.0) niceFraction = 2.0;
+        else if (fraction <= 5.0) niceFraction = 5.0;
+        else niceFraction = 10.0;
+
+        return niceFraction * baseValue;
+    }
+
 }
