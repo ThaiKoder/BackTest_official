@@ -265,13 +265,17 @@ public sealed partial class CandleChartControl
         );
     }
 
-    private double GetYAxisStepPrice()
+    private double GetYAxisStepPrice(Rect plot)
     {
-        const double MinTickSpacingPx = 60.0;
-        double minStepPrice = _pricePerPixel * MinTickSpacingPx;
-        return GetNiceStep(minStepPrice);
-    }
+        const int TargetTickCount = 8;
 
+        double visibleRange = plot.Height * _pricePerPixel;
+        if (visibleRange <= 0 || !double.IsFinite(visibleRange))
+            return 1.0;
+
+        double rawStep = visibleRange / TargetTickCount;
+        return GetNiceStep(rawStep);
+    }
     private static double AlignPriceDown(double price, double step)
     {
         return Math.Floor(price / step) * step;
@@ -280,7 +284,7 @@ public sealed partial class CandleChartControl
     private void UpdateYAxisTicks(Rect plot)
     {
         _yTickCount = 0;
-        _yTickStepPrice = GetYAxisStepPrice();
+        _yTickStepPrice = GetYAxisStepPrice(plot);
 
         double minPrice = _centerPrice - (plot.Height * _pricePerPixel) / 2.0;
         double maxPrice = _centerPrice + (plot.Height * _pricePerPixel) / 2.0;
@@ -301,7 +305,6 @@ public sealed partial class CandleChartControl
             p += _yTickStepPrice;
         }
     }
-
     private static string FormatYAxisLabel(double price, double step)
     {
         if (step >= 1_000_000_000) return price.ToString("0", CultureInfo.InvariantCulture);
@@ -311,22 +314,21 @@ public sealed partial class CandleChartControl
         if (step >= 0.01) return price.ToString("0.####", CultureInfo.InvariantCulture);
         return price.ToString("0.########", CultureInfo.InvariantCulture);
     }
-    private static double GetNiceStep(double minStep)
+    private static double GetNiceStep(double rawStep)
     {
-        if (minStep <= 0 || !double.IsFinite(minStep))
+        if (rawStep <= 0 || !double.IsFinite(rawStep))
             return 1.0;
 
-        double exponent = Math.Floor(Math.Log10(minStep));
-        double baseValue = Math.Pow(10.0, exponent);
-        double fraction = minStep / baseValue;
+        double exponent = Math.Floor(Math.Log10(rawStep));
+        double magnitude = Math.Pow(10.0, exponent);
+        double normalized = rawStep / magnitude;
 
-        double niceFraction;
-        if (fraction <= 1.0) niceFraction = 1.0;
-        else if (fraction <= 2.0) niceFraction = 2.0;
-        else if (fraction <= 5.0) niceFraction = 5.0;
-        else niceFraction = 10.0;
+        double niceNormalized;
+        if (normalized <= 1.0) niceNormalized = 1.0;
+        else if (normalized <= 2.0) niceNormalized = 2.0;
+        else if (normalized <= 5.0) niceNormalized = 5.0;
+        else niceNormalized = 10.0;
 
-        return niceFraction * baseValue;
+        return niceNormalized * magnitude;
     }
-
 }
