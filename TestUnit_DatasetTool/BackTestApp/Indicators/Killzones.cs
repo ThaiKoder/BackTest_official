@@ -52,15 +52,21 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             long? previousGlobalTs = null;
 
             // Kill zones
+            var zones = chart.Test_GetSessionZoneConfigs();
+
+            var killZoneName1 = zones.First(z => z.Name == "Asian");
+            var killZoneName2 = zones.First(z => z.Name == "London");
+
             var morning = new SessionHighLowIndicator(
-                "Morning",
-                new TimeSpan(10, 0, 0),
-                new TimeSpan(12, 0, 0));
+                killZoneName1.Name,
+                killZoneName1.Start,
+                killZoneName1.End);
 
             var afternoon = new SessionHighLowIndicator(
-                "Afternoon",
-                new TimeSpan(14, 0, 0),
-                new TimeSpan(16, 0, 0));
+                killZoneName2.Name,
+                killZoneName2.Start,
+                killZoneName2.End);
+
 
             long? lastSeenMorningEndTs = null;
             long? lastSeenAfternoonEndTs = null;

@@ -277,4 +277,18 @@ public sealed partial class CandleChartControl
 
         return result;
     }
+
+
+#if DEBUG
+    public IReadOnlyList<(string Name, TimeSpan Start, TimeSpan End)> Test_GetSessionZoneConfigs()
+    {
+        var list = new List<(string, TimeSpan, TimeSpan)>();
+
+        foreach (var z in _sessionZoneDefinitions)
+            list.Add((z.Name, z.Start, z.End));
+
+        return list;
+    }
+#endif
+
 }
