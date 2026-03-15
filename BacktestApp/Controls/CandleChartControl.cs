@@ -71,8 +71,7 @@ public sealed partial class CandleChartControl : Control
     private const int WindowCount = 10*4; // divided by 4 to get candle in view
 
     private const int UiFileRange = 3;
-    private const int UiCandleRange = WindowCount / 2;
-
+    private const int UiCandleRange = (WindowCount - 1) / 2;
     // =========================
     // Interaction state
     // =========================
