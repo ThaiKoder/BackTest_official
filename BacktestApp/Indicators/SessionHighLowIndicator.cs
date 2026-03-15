@@ -11,6 +11,7 @@ public sealed class SessionHighLowIndicator
     }
 
     public sealed record Output(
+        string Name,
         SessionState State,
         bool HasPrevious,
         double PreviousHigh,
@@ -24,30 +25,44 @@ public sealed class SessionHighLowIndicator
         long LastEndTs
     );
 
+    private readonly string _name;
+    private readonly TimeSpan _startTime;
+    private readonly TimeSpan _endTime;
+
     private SessionState _state = SessionState.Out;
 
-    // zone en cours
     private bool _zoneActive;
     private double _currentZoneHigh;
     private double _currentZoneLow;
     private long _currentStartTs;
     private long _currentEndTs;
 
-    // dernière zone validée
     private bool _hasLast;
     private double _lastHigh;
     private double _lastLow;
     private long _lastStartTs;
     private long _lastEndTs;
 
-    // avant-dernière zone validée
     private bool _hasPrevious;
     private double _previousHigh;
     private double _previousLow;
     private long _previousStartTs;
     private long _previousEndTs;
 
-    public SessionState State => _state;
+    public string Name => _name;
+
+    public SessionHighLowIndicator(string name, TimeSpan startTime, TimeSpan endTime)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("name vide", nameof(name));
+
+        if (endTime <= startTime)
+            throw new ArgumentException("endTime doit être > startTime.");
+
+        _name = name;
+        _startTime = startTime;
+        _endTime = endTime;
+    }
 
     public void Reset()
     {
@@ -77,7 +92,7 @@ public sealed class SessionHighLowIndicator
         long sec = ts / 1_000_000_000L;
         var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
 
-        bool isIn = IsInSession(dt);
+        bool isIn = IsInSession(dt.TimeOfDay);
 
         double h = high / priceScale;
         double l = low / priceScale;
@@ -109,7 +124,6 @@ public sealed class SessionHighLowIndicator
         {
             _state = SessionState.Out;
 
-            // sortie de zone : on valide une seule fois
             if (_zoneActive)
             {
                 if (_hasLast)
@@ -134,6 +148,7 @@ public sealed class SessionHighLowIndicator
         }
 
         return new Output(
+            _name,
             _state,
             _hasPrevious,
             _previousHigh,
@@ -148,10 +163,8 @@ public sealed class SessionHighLowIndicator
         );
     }
 
-    private static bool IsInSession(DateTime dtUtc)
+    private bool IsInSession(TimeSpan t)
     {
-        TimeSpan t = dtUtc.TimeOfDay;
-        return t >= new TimeSpan(10, 0, 0)
-            && t < new TimeSpan(12, 0, 0);
+        return t >= _startTime && t < _endTime;
     }
 }

@@ -3,6 +3,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using BacktestApp.Indicators;
 using System;
 using System.Diagnostics;
 using System.Globalization;
@@ -50,21 +51,25 @@ public sealed partial class CandleChartControl
     private static readonly IBrush SessionBrush =
         new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
 
-    private void DrawSessionZone(DrawingContext ctx, Rect plot)
+    private void DrawSessionZone(
+        DrawingContext ctx,
+        Rect plot,
+        SessionHighLowIndicator.Output? output,
+        SessionZoneDefinition definition)
     {
-        if (_sessionOutput is null || !_sessionOutput.HasLast)
+        if (output is null || !output.HasLast)
             return;
 
         double x1 = WorldTimeToScreenX(
-            TsNsToEpochSeconds(_sessionOutput.LastStartTs),
+            TsNsToEpochSeconds(output.LastStartTs),
             plot);
 
         double x2 = WorldTimeToScreenX(
-            TsNsToEpochSeconds(_sessionOutput.LastEndTs),
+            TsNsToEpochSeconds(output.LastEndTs),
             plot);
 
-        double yHigh = PriceToY(_sessionOutput.LastHigh, plot);
-        double yLow = PriceToY(_sessionOutput.LastLow, plot);
+        double yHigh = PriceToY(output.LastHigh, plot);
+        double yLow = PriceToY(output.LastLow, plot);
 
         double left = Math.Min(x1, x2);
         double width = Math.Abs(x2 - x1);
@@ -76,7 +81,22 @@ public sealed partial class CandleChartControl
             return;
 
         var rect = new Rect(left, top, width, height);
-        ctx.DrawRectangle(SessionBrush, SessionPen, rect);
+        ctx.DrawRectangle(definition.Fill, definition.Border, rect);
+    }
+
+
+    private void DrawAllSessionZones(DrawingContext ctx, Rect plot)
+    {
+        int count = Math.Min(_sessionZoneDefinitions.Count, _sessionOutputs.Count);
+
+        for (int i = 0; i < count; i++)
+        {
+            DrawSessionZone(
+                ctx,
+                plot,
+                _sessionOutputs[i],
+                _sessionZoneDefinitions[i]);
+        }
     }
 
     public override void Render(DrawingContext ctx)
@@ -151,15 +171,8 @@ public sealed partial class CandleChartControl
             }
         }
 
-        if (_sessionOutput is not null)
-        {
-            Debug.WriteLine(
-                $"STATE={_sessionOutput.State} | " +
-                $"LAST H={_sessionOutput.LastHigh} L={_sessionOutput.LastLow} | " +
-                $"PREV H={_sessionOutput.PreviousHigh} L={_sessionOutput.PreviousLow}"
-            );
-        }
-        DrawSessionZone(ctx, plot);
+        DrawAllSessionZones(ctx, plot);
+        DebugKillZones();
 
         // Mise à jour des axes dans des buffers fixes
         UpdateYAxisTicks(plot);

@@ -7,6 +7,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using BacktestApp.Indicators;
+using BacktestApp.Indicators;
+using Avalonia.Media;
+using System.Collections.Generic;
 
 namespace BacktestApp.Controls;
 
@@ -21,8 +24,90 @@ namespace BacktestApp.Controls;
 /// </summary>
 public sealed partial class CandleChartControl : Control
 {
-    private readonly SessionHighLowIndicator _sessionIndicator = new();
-    private SessionHighLowIndicator.Output _sessionOutput;
+    // =========================
+    // Indocator KillZones
+    // =========================
+    private sealed record SessionZoneDefinition(
+        string Name,
+        TimeSpan Start,
+        TimeSpan End,
+        IBrush Fill,
+        Pen Border);
+
+    private readonly List<SessionZoneDefinition> _sessionZoneDefinitions = new()
+{
+    new SessionZoneDefinition(
+        "Morning",
+        new TimeSpan(10, 0, 0),
+        new TimeSpan(12, 0, 0),
+        new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+        new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 2)),
+
+    new SessionZoneDefinition(
+        "Afternoon",
+        new TimeSpan(14, 0, 0),
+        new TimeSpan(16, 0, 0),
+        new SolidColorBrush(Color.FromArgb(30, 100, 180, 255)),
+        new Pen(new SolidColorBrush(Color.FromArgb(255, 100, 180, 255)), 2))
+};
+
+    private readonly List<SessionHighLowIndicator> _sessionIndicators = new();
+    private readonly List<SessionHighLowIndicator.Output?> _sessionOutputs = new();
+
+    private void InitializeSessionIndicators()
+    {
+        _sessionIndicators.Clear();
+        _sessionOutputs.Clear();
+
+        for (int i = 0; i < _sessionZoneDefinitions.Count; i++)
+        {
+            var def = _sessionZoneDefinitions[i];
+
+            _sessionIndicators.Add(new SessionHighLowIndicator(
+                def.Name,
+                def.Start,
+                def.End));
+
+            _sessionOutputs.Add(null);
+        }
+    }
+
+    private void ResetSessionIndicators()
+    {
+        for (int i = 0; i < _sessionIndicators.Count; i++)
+        {
+            _sessionIndicators[i].Reset();
+            _sessionOutputs[i] = null;
+        }
+    }
+
+    private void FeedSessionIndicators(long ts, long high, long low)
+    {
+        for (int i = 0; i < _sessionIndicators.Count; i++)
+        {
+            _sessionOutputs[i] = _sessionIndicators[i].OnCandle(
+                ts,
+                high,
+                low,
+                PriceScale);
+        }
+    }
+
+
+    private void DebugKillZones()
+    {
+        for (int i = 0; i < _sessionOutputs.Count; i++)
+        {
+            var z = _sessionOutputs[i];
+            if (z == null)
+                continue;
+
+            Debug.WriteLine(
+                $"{z.Name} | " +
+                $"LAST H={z.LastHigh} L={z.LastLow} | " +
+                $"PREV H={z.PreviousHigh} L={z.PreviousLow}");
+        }
+    }
 
 
     // =========================
@@ -133,6 +218,7 @@ public sealed partial class CandleChartControl : Control
     public CandleChartControl()
     {
         Focusable = true;
+        InitializeSessionIndicators();
     }
 
 

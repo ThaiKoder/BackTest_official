@@ -118,8 +118,7 @@ public sealed partial class CandleChartControl
         if (resetView || _ringCount == 0)
         {
             RingClear();
-
-            _sessionIndicator.Reset();
+            ResetSessionIndicators();
 
             int firstValidIdx = -1;
 
@@ -141,11 +140,10 @@ public sealed partial class CandleChartControl
                     candle.V,
                     candle.Sym);
 
-                _sessionOutput = _sessionIndicator.OnCandle(
+                FeedSessionIndicators(
                     candle.Ts,
                     candle.H,
-                    candle.L,
-                    PriceScale);
+                    candle.L);
             }
 
             _ringFirstGlobalIdx = Math.Max(0, firstValidIdx);
@@ -169,11 +167,10 @@ public sealed partial class CandleChartControl
                     candle.V,
                     candle.Sym);
 
-                _sessionOutput = _sessionIndicator.OnCandle(
+                FeedSessionIndicators(
                     candle.Ts,
                     candle.H,
-                    candle.L,
-                    PriceScale);
+                    candle.L);
             }
         }
 
