@@ -80,8 +80,29 @@ public sealed partial class CandleChartControl
         if (width <= 0 || height <= 0)
             return;
 
+
         var rect = new Rect(left, top, width, height);
         ctx.DrawRectangle(definition.Fill, definition.Border, rect);
+
+        // =========================
+        // Texte sous le LOW
+        // =========================
+
+        string label = output.Name;
+        var textBrush = definition.Border.Brush;
+
+        var ft = new FormattedText(
+            label,
+            CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"),
+            12,
+            textBrush);
+
+        double textX = left + width * 0.5 - ft.Width / 2;
+        double textY = yLow + 4; // sous le low
+
+        ctx.DrawText(ft, new Point(textX, textY));
     }
 
 
