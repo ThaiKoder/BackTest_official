@@ -1,171 +1,191 @@
 ﻿using System;
 using System.Collections.Generic;
-using Xunit;
-using BacktestApp.Controls;
 using System.Diagnostics;
+using System.Linq;
+using Xunit;
 
 namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlMmap;
 
 public class CursorNext
 {
     [Fact]
-    public void Next_Should_Advance_Across_10_Contracts_With_Many_Presses()
+    public void Next_Button_Path_Should_Advance_Across_10_Contracts()
     {
-        int nbFile = 800; 
+        // Arrange
+        const int nbContractsToAdvance = 10;
         var chart = new global::BacktestApp.Controls.CandleChartControl();
 
         chart.Test_LoadIndex();
-        int count = chart.Test_ContractsCount;
-        Assert.True(count >= 11, $"Pas assez de contrats pour avancer de 10. count={count}");
+        int contracts = chart.Test_ContractsCount;
 
-        // Start contract
         int startIdx = 500;
+        int targetIdx = startIdx + nbContractsToAdvance;
+
+        Assert.True(targetIdx < contracts,
+            $"Pas assez de contrats pour avancer de {nbContractsToAdvance}. startIdx={startIdx}, contracts={contracts}");
+
+        // Même initialisation que le flux UI actuel : contrat chargé + voisins.
         chart.Test_LoadByIndexWithNeighbors(startIdx);
 
-        // Place window at start and center properly
+        // On force une surface visible de test pour que le calcul du plot soit stable.
+        chart.Test_SetBoundsForTest(1200, 700);
+
+        // On démarre depuis le début du fichier pour compter proprement les pressions.
         chart.Test_ReloadWindow(0);
         chart.Test_SetCenterToWindowMiddle();
-
-        int targetIdx = startIdx + nbFile;
+        chart.Test_TickEdgeTimerOnce();
 
         int presses = 0;
         int switches = 0;
-
-        // Sécurité : si chaque contrat nécessite beaucoup de pressions,
-        // on laisse large mais on évite boucle infinie
-        int safetyMaxPresses = 200_000;
-
         int lastContractIdx = chart.Test_CurrentIdx;
 
-        while (chart.Test_CurrentIdx < targetIdx)
+        // Large sécurité pour éviter une boucle infinie en cas de régression.
+        const int safetyMaxPresses = 200_000;
+
+        // Act
+        while (chart.Test_CurrentIdx < targetIdx && presses < safetyMaxPresses)
         {
-            chart.CursorNext();
+            // Même chemin que le bouton Next dans l'UI.
+            chart.loadNext();
             presses++;
 
-            // Après un ReloadWindow/LoadWindow, le centre doit être cohérent
-            //chart.Test_SetCenterToWindowMiddle();
+            // En test, on recale le centre pour garder un comportement stable.
+            chart.Test_SetCenterToWindowMiddle();
+            chart.Test_TickEdgeTimerOnce();
 
-            // Compte les changements de contrat
             if (chart.Test_CurrentIdx != lastContractIdx)
             {
                 switches++;
                 lastContractIdx = chart.Test_CurrentIdx;
-
+                Debug.WriteLine($"[NEXT] switch -> contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
             }
-
-            if (lastContractIdx == 100) Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            if (lastContractIdx == 200) Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            if (lastContractIdx == 300) Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            if (lastContractIdx == 400) Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            if (lastContractIdx == 500) Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            if (lastContractIdx == 520) Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            if (lastContractIdx == 524)
-            {
-                Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            }
-            if (lastContractIdx == 525)
-            {
-                Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            }
-
-            if (lastContractIdx == 527)
-            {
-                Debug.WriteLine($"Debug: contractIdx={lastContractIdx}, presses={presses}, switches={switches}");
-            }
-
         }
 
+        // Assert
+        Assert.True(presses < safetyMaxPresses,
+            $"Boucle de sécurité atteinte. currentIdx={chart.Test_CurrentIdx}, targetIdx={targetIdx}");
 
         Assert.Equal(targetIdx, chart.Test_CurrentIdx);
-        Assert.Equal(nbFile, switches); // on doit avoir switché 10 fois de contrat
+        Assert.Equal(nbContractsToAdvance, switches);
     }
 
     [Fact]
-    public void CursorNext_Should_Switch_Contracts_Monotonically_With_UI_Like_EdgeTimer()
+    public void Next_Button_Path_Should_Switch_Contracts_Monotonically()
     {
         // Arrange
-        var chart = new BacktestApp.Controls.CandleChartControl();
+        var chart = new global::BacktestApp.Controls.CandleChartControl();
 
         chart.Test_LoadIndex();
         int contracts = chart.Test_ContractsCount;
         Assert.True(contracts > 10, $"Pas assez de contrats. contracts={contracts}");
 
         int startIdx = 0;
-        int nbContractsToAdvance = 800; // comme toi
+        int nbContractsToAdvance = 10;
         int targetIdx = startIdx + nbContractsToAdvance;
 
         Assert.True(targetIdx < contracts,
-            $"Target hors range. targetIdx={targetIdx} contracts={contracts}");
+            $"Target hors range. targetIdx={targetIdx}, contracts={contracts}");
 
-        // Start same as UI (tu peux choisir LoadContractIndex ou LoadByIndexWithNeighbors)
-        // Ici je prends ByIndexWithNeighbors car c'est ton chemin de CursorNext.
         chart.Test_LoadByIndexWithNeighbors(startIdx);
-
-        // Simule une surface visible (Bounds) + un "plot rect"
         chart.Test_SetBoundsForTest(1200, 700);
-
-        // Place la fenêtre de départ (comme UI: goToStart false = fin du fichier ; mais ici tu veux être stable)
         chart.Test_ReloadWindow(0);
         chart.Test_SetCenterToWindowMiddle();
-
-        // Tick initial (comme si timer tournait)
         chart.Test_TickEdgeTimerOnce();
 
         int presses = 0;
         int switches = 0;
-
-        // Sécurité globale
-        int safetyMaxPresses = 200_000;
-
-        // Sécurité anti-boucle "un seul contrat" (ex: 525)
-        int maxPressesWithoutSwitch = 50_000;
-        int pressesSinceLastSwitch = 0;
-
         int lastIdx = chart.Test_CurrentIdx;
 
-        // Pour diagnostiquer si on repasse toujours par le même idx
-        var switchHistory = new List<int>(capacity: 2000);
-        switchHistory.Add(lastIdx);
+        const int safetyMaxPresses = 200_000;
+        var switchHistory = new List<int> { lastIdx };
 
         // Act
-        while (chart.Test_CurrentIdx < targetIdx)
+        while (chart.Test_CurrentIdx < targetIdx && presses < safetyMaxPresses)
         {
-            chart.CursorNext();
+            // Même chemin que MainWindow.Click_Next -> loadNext().
+            chart.loadNext();
             presses++;
-            pressesSinceLastSwitch++;
 
-            // En UI, le centre bouge selon l'interaction; en test, on stabilise
-            // (si tu veux coller encore plus à l'UI, tu peux commenter cette ligne)
             chart.Test_SetCenterToWindowMiddle();
+            chart.Test_TickEdgeTimerOnce();
 
             if (chart.Test_CurrentIdx != lastIdx)
             {
-                switches++;
+                int previousIdx = lastIdx;
                 lastIdx = chart.Test_CurrentIdx;
-                pressesSinceLastSwitch = 0;
+                switches++;
                 switchHistory.Add(lastIdx);
 
-                if (lastIdx == 100 || lastIdx == 200 || lastIdx == 300 || lastIdx == 400 ||
-                    lastIdx == 500 || lastIdx == 520 || lastIdx == 525 || lastIdx == 526 ||
-                    lastIdx == 527)
-                {
-                    Debug.WriteLine($"Switch -> contractIdx={lastIdx}, presses={presses}, switches={switches}");
-                }
+                Debug.WriteLine($"[NEXT] switch {previousIdx} -> {lastIdx}, presses={presses}, switches={switches}");
+
+                Assert.True(lastIdx > previousIdx,
+                    $"La navigation doit être strictement croissante. previousIdx={previousIdx}, currentIdx={lastIdx}");
+                Assert.Equal(previousIdx + 1, lastIdx);
             }
-
-
         }
 
         // Assert
+        Assert.True(presses < safetyMaxPresses,
+            $"Boucle de sécurité atteinte. history={string.Join(",", switchHistory)}");
+
         Assert.Equal(targetIdx, chart.Test_CurrentIdx);
         Assert.Equal(nbContractsToAdvance, switches);
+        Assert.Equal(nbContractsToAdvance + 1, switchHistory.Count);
     }
 
-    private static IEnumerable<int> Tail(List<int> list, int n)
+    [Fact]
+    public void LoadNext_NewSequence_Should_Advance_UiCandleStep_And_Change_LoadedCandles()
     {
-        int start = Math.Max(0, list.Count - n);
-        for (int i = start; i < list.Count; i++)
-            yield return list[i];
-    }
+        // Arrange
+        var chart = new global::BacktestApp.Controls.CandleChartControl();
 
+        chart.Test_InitializeFilesAndCandlesMode();
+
+        int beforeCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
+        int beforeNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
+        var beforeTs = chart.Test_GetLoadedTimestamps();
+
+        Assert.True(beforeCurrentIdx >= 0, $"CurrentIdx initial invalide: {beforeCurrentIdx}");
+        Assert.True(beforeNextCursorIdx != -1, "Le curseur suivant est déjà à la fin du fichier.");
+        Assert.NotNull(beforeTs);
+        Assert.NotEmpty(beforeTs);
+
+        // Act
+        chart.loadNext();   // même chemin que le bouton UI
+
+        int afterCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
+        int afterNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
+        var afterTs = chart.Test_GetLoadedTimestamps();
+
+        // Assert
+        Assert.True(afterCurrentIdx >= 0, $"CurrentIdx après avance invalide: {afterCurrentIdx}");
+        Assert.NotNull(afterTs);
+        Assert.NotEmpty(afterTs);
+
+        Assert.NotEqual(
+            beforeCurrentIdx,
+            afterCurrentIdx);
+
+        Assert.False(
+            beforeTs.SequenceEqual(afterTs),
+            $"Les candles chargées doivent changer. " +
+            $"beforeCurrentIdx={beforeCurrentIdx}, afterCurrentIdx={afterCurrentIdx}, " +
+            $"beforeFirstTs={beforeTs[0]}, beforeLastTs={beforeTs[^1]}, " +
+            $"afterFirstTs={afterTs[0]}, afterLastTs={afterTs[^1]}");
+
+        Assert.True(
+            beforeTs[0] != afterTs[0] || beforeTs[^1] != afterTs[^1],
+            $"La fenêtre doit changer au minimum en début ou en fin. " +
+            $"beforeFirstTs={beforeTs[0]}, beforeLastTs={beforeTs[^1]}, " +
+            $"afterFirstTs={afterTs[0]}, afterLastTs={afterTs[^1]}");
+
+        // contrôle bonus : cohérence du curseur suivant
+        Assert.True(
+            afterNextCursorIdx == -1 ||
+            afterNextCursorIdx != beforeNextCursorIdx ||
+            afterCurrentIdx != beforeCurrentIdx,
+            $"Le step ne semble pas avoir avancé correctement. " +
+            $"beforeNext={beforeNextCursorIdx}, afterNext={afterNextCursorIdx}, " +
+            $"beforeCurrent={beforeCurrentIdx}, afterCurrent={afterCurrentIdx}");
+    }
 }

@@ -24,7 +24,6 @@ namespace BacktestApp.Views
         private void Chart_Attached(object? sender, VisualTreeAttachmentEventArgs e)
         {
             _chart = (CandleChartControl)sender!;
-            _chart.loadIndex();
             DebugMessage.Write($"Attached: Name = {_chart.Name}");
         }
 
@@ -40,7 +39,7 @@ namespace BacktestApp.Views
         {
             if (_chart == null)
             {
-                DebugMessage.Write("Chart pas encore attaché (dock/onglet pas actif / recréation)");
+                DebugMessage.Write("Chart pas encore attache (dock/onglet pas actif / recreation)");
                 return;
             }
 
@@ -52,7 +51,7 @@ namespace BacktestApp.Views
         {
             if (_chart == null)
             {
-                DebugMessage.Write("Chart pas encore attaché (dock/onglet pas actif / recréation)");
+                DebugMessage.Write("Chart pas encore attache (dock/onglet pas actif / recreation)");
                 return;
             }
 
@@ -67,7 +66,7 @@ namespace BacktestApp.Views
 
             if (_chart == null)
             {
-                DebugMessage.Write("Chart pas encore attaché (dock/onglet pas actif / recréation)");
+                DebugMessage.Write("Chart pas encore attache (dock/onglet pas actif / recreation)");
                 return;
             }
 

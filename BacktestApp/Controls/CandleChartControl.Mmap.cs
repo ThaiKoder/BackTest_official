@@ -280,14 +280,13 @@ public sealed partial class CandleChartControl
 
     public void loadPrevious()
     {
-        DebugMessage.Write("previous clicked");
-        CursorPrev();
+        DebugMessage.Write("previous clicked - non géré pour l'instant avec CandlesNext");
     }
 
     public void loadNext()
     {
         DebugMessage.Write("next clicked");
-        CursorNext();
+        AdvanceCandlesNext();
     }
 
     public void CursorPrev()
@@ -396,7 +395,7 @@ public sealed partial class CandleChartControl
 
     public void loadIndex()
     {
-        if ( _starts?.Length > 0)
+        if (_starts?.Length > 0)
         {
             //Debug.WriteLine($"=========INDEX: starts={_starts?.Length} ends={_ends?.Length}");
             //Debug.WriteLine($"===========INDEX LAST: start={_starts?[^1]} end={_ends?[^1]}");

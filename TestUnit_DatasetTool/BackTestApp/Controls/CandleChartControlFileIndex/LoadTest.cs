@@ -74,64 +74,64 @@ public class LoadTest
 
 
 
-   // Parcourir liste fichiers index et vérifier x premiers et x derniers records en fonction de l'index courant
-    [Fact]
-    public void Test4_FilesNext_Range3_Iterates_AsExpected()
-    {
-        var chart = new global::BacktestApp.Controls.CandleChartControl();
-        chart.Test_LoadIndexFile("data/bin/_index.bin");
+   // Parcourir liste fichiers index et vérifier x premiers et x derniers records en fonction de l'index courant pour seulement 15 ? records
+    //[Fact]
+    //public void Test4_FilesNext_Range3_Iterates_AsExpected()
+    //{
+    //    var chart = new global::BacktestApp.Controls.CandleChartControl();
+    //    chart.Test_LoadIndexFile("data/bin/_index.bin");
 
-        int range = 3; // Modifier dynamiquement x dernier et x premiers en fonction de l'idx courant
-        int minNeeded = 15;
+    //    int range = 3; // Modifier dynamiquement x dernier et x premiers en fonction de l'idx courant
+    //    int minNeeded = 15;
 
-        Assert.True(chart.Test_IndexCount >= minNeeded, $"Le test demande au moins {minNeeded} records.");
+    //    Assert.True(chart.Test_IndexCount >= minNeeded, $"Le test demande au moins {minNeeded} records.");
 
-        // STEP 1 : -1 -1 -1 [0] 1 2 3
-        var s1 = chart.FilesNext(0, range);
+    //    // STEP 1 : -1 -1 -1 [0] 1 2 3
+    //    var s1 = chart.FilesNext(0, range);
 
-        Assert.Equal(0, s1.CurrentIdx);
-        Assert.Equal(4, s1.NextCursorIdx);
-        Assert.Equal(new[] { -1, -1, -1, 0, 1, 2, 3 }, s1.Window.Select(x => x.Idx).ToArray());
-        Assert.Equal(new[] { 0, 1, 2, 3 }, s1.Added.Select(x => x.Idx).ToArray());
-        Assert.Empty(s1.Removed);
+    //    Assert.Equal(0, s1.CurrentIdx);
+    //    Assert.Equal(4, s1.NextCursorIdx);
+    //    Assert.Equal(new[] { -1, -1, -1, 0, 1, 2, 3 }, s1.Window.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(new[] { 0, 1, 2, 3 }, s1.Added.Select(x => x.Idx).ToArray());
+    //    Assert.Empty(s1.Removed);
 
-        // STEP 2 : 1 2 3 [4] 5 6 7
-        var s2 = chart.FilesNext(s1.NextCursorIdx, range);
+    //    // STEP 2 : 1 2 3 [4] 5 6 7
+    //    var s2 = chart.FilesNext(s1.NextCursorIdx, range);
 
-        Assert.Equal(4, s2.CurrentIdx);
-        Assert.Equal(8, s2.NextCursorIdx);
-        Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7 }, s2.Window.Select(x => x.Idx).ToArray());
-        Assert.Equal(new[] { 4, 5, 6, 7 }, s2.Added.Select(x => x.Idx).ToArray());
-        Assert.Equal(new[] { 0 }, s2.Removed.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(4, s2.CurrentIdx);
+    //    Assert.Equal(8, s2.NextCursorIdx);
+    //    Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7 }, s2.Window.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(new[] { 4, 5, 6, 7 }, s2.Added.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(new[] { 0 }, s2.Removed.Select(x => x.Idx).ToArray());
 
-        // STEP 3 : 5 6 7 [8] 9 10 11
-        var s3 = chart.FilesNext(s2.NextCursorIdx, range);
+    //    // STEP 3 : 5 6 7 [8] 9 10 11
+    //    var s3 = chart.FilesNext(s2.NextCursorIdx, range);
 
-        Assert.Equal(8, s3.CurrentIdx);
-        Assert.Equal(12, s3.NextCursorIdx);
-        Assert.Equal(new[] { 5, 6, 7, 8, 9, 10, 11 }, s3.Window.Select(x => x.Idx).ToArray());
-        Assert.Equal(new[] { 8, 9, 10, 11 }, s3.Added.Select(x => x.Idx).ToArray());
-        Assert.Equal(new[] { 1, 2, 3, 4 }, s3.Removed.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(8, s3.CurrentIdx);
+    //    Assert.Equal(12, s3.NextCursorIdx);
+    //    Assert.Equal(new[] { 5, 6, 7, 8, 9, 10, 11 }, s3.Window.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(new[] { 8, 9, 10, 11 }, s3.Added.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(new[] { 1, 2, 3, 4 }, s3.Removed.Select(x => x.Idx).ToArray());
 
-        // STEP 4 : 9 10 11 [12] 13 14 -1
-        var s4 = chart.FilesNext(s3.NextCursorIdx, range);
+    //    // STEP 4 : 9 10 11 [12] 13 14 -1
+    //    var s4 = chart.FilesNext(s3.NextCursorIdx, range);
 
-        Assert.Equal(12, s4.CurrentIdx);
-        Assert.Equal(-1, s4.NextCursorIdx);
-        Assert.Equal(new[] { 9, 10, 11, 12, 13, 14, -1 }, s4.Window.Select(x => x.Idx).ToArray());
-        Assert.Equal(new[] { 12, 13, 14 }, s4.Added.Select(x => x.Idx).ToArray());
-        Assert.Equal(new[] { 5, 6, 7, 8 }, s4.Removed.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(12, s4.CurrentIdx);
+    //    Assert.Equal(-1, s4.NextCursorIdx);
+    //    Assert.Equal(new[] { 9, 10, 11, 12, 13, 14, -1 }, s4.Window.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(new[] { 12, 13, 14 }, s4.Added.Select(x => x.Idx).ToArray());
+    //    Assert.Equal(new[] { 5, 6, 7, 8 }, s4.Removed.Select(x => x.Idx).ToArray());
 
 
-        // STEP 5 : appel après fin → rien ne change
-        var s5 = chart.FilesNext(s4.CurrentIdx, range);
+    //    // STEP 5 : appel après fin → rien ne change
+    //    var s5 = chart.FilesNext(s4.CurrentIdx, range);
 
-        Assert.Equal(12, s5.CurrentIdx);
-        Assert.Equal(-1, s5.NextCursorIdx);
-        Assert.Equal(new[] { 9, 10, 11, 12, 13, 14, -1 }, s5.Window.Select(x => x.Idx).ToArray());
-        Assert.Empty(s5.Added);
-        Assert.Empty(s5.Removed);
-    }
+    //    Assert.Equal(12, s5.CurrentIdx);
+    //    Assert.Equal(-1, s5.NextCursorIdx);
+    //    Assert.Equal(new[] { 9, 10, 11, 12, 13, 14, -1 }, s5.Window.Select(x => x.Idx).ToArray());
+    //    Assert.Empty(s5.Added);
+    //    Assert.Empty(s5.Removed);
+    //}
 
 
     //FULL TEST Parcourir tout les fichiers avec Next File

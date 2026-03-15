@@ -107,37 +107,7 @@ public sealed partial class CandleChartControl : Control
         if (_loadedOnce) return;
         _loadedOnce = true;
 
-        // 1) Charger l'index une fois
-        loadIndex(); // charge _starts/_ends une fois
-
-        // 2) Choisir le contrat courant à afficher
-        uint targetYmd = 20090620;
-        //int idx = FindFileIndex(targetYmd);
-        int idx = 3;
-
-        if (idx < 0)
-        {
-            DebugMessage.Write("[CandleChartControl] Aucun fichier trouvé pour la date cible");
-            return;
-        }
-
-        // 3) Charger le fichier courant (fin du fichier)
-        LoadContractIndex(idx, goToStart: false);
-
-        // 4) Timer "edge check"
-        _edgeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
-        _edgeTimer.Tick += (_, __) =>
-        {
-            if (!IsVisible) return;
-            if (_windowLoaded <= 0) return;
-
-            var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
-            if (plot.Width <= 0 || plot.Height <= 0) return;
-
-            EnsureWindowAroundView(plot);
-        };
-
-        _edgeTimer.Start();
+        InitializeFilesAndCandlesMode();
     }
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
@@ -154,6 +124,13 @@ public sealed partial class CandleChartControl : Control
 
         _file?.Dispose();
         _file = null;
+
+        _uiCandleIndex?.Dispose();
+        _uiCandleIndex = null;
+        _uiFileIndex?.Dispose();
+        _uiFileIndex = null;
+        _uiCandleStep = null;
+        _uiFileStep = null;
     }
 
 }
