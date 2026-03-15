@@ -161,7 +161,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                             return;
                         }
 
-                        bool isOk = a.LastLow < m.LastHigh;
+                        bool isOk = a.LastLow < (m.LastHigh-(m.LastHigh- m.LastLow));
 
                         if (isOk)
                             compareOk++;
@@ -287,6 +287,333 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             Assert.True(
                 totalComparisons > 0,
                 "Aucune comparaison Morning -> Afternoon n'a été produite.");
+        }
+
+        private enum ZoneMetric
+        {
+            High,
+            Low
+        }
+
+        [Fact]
+        public void LoadNext_Should_Compare_SelectedMetric_Between_Two_Zones_After_Each_Completed_Cycle()
+        {
+            // ==================================================
+            // CONFIG TEST
+            // ==================================================
+            const string referenceZoneName = "Asian";
+            const string targetZoneName = "London";
+
+            const ZoneMetric referenceMetric = ZoneMetric.High;
+            const ZoneMetric targetMetric = ZoneMetric.Low;
+
+            // Exemples :
+            // target > reference   => (targetValue, referenceValue) => targetValue > referenceValue
+            // target < reference   => (targetValue, referenceValue) => targetValue < referenceValue
+            // target >= reference  => (targetValue, referenceValue) => targetValue >= referenceValue
+            // target <= reference  => (targetValue, referenceValue) => targetValue <= referenceValue
+            static bool Comparison(double targetValue, double referenceValue) => targetValue < referenceValue;
+
+            const bool enableExactExpectedCandleCount = false;   // false = ultra rapide
+            const bool enableStrictUniqueTimestampCheck = true;  // peut être mis à false pour encore plus de vitesse
+            const bool enableVerboseDebug = false;
+
+            // ==================================================
+            // ARRANGE
+            // ==================================================
+            var chart = new global::BacktestApp.Controls.CandleChartControl();
+
+            chart.Test_LoadIndexFile("data/bin/_index.bin");
+
+            long expectedTotalFiles = chart.Test_IndexCount;
+            long? expectedTotalCandles = null;
+
+            if (enableExactExpectedCandleCount)
+            {
+                long exactCount = 0;
+                for (int fileIdx = 0; fileIdx < expectedTotalFiles; fileIdx++)
+                {
+                    chart.Test_CandlesLoadFromCurrentFileIndex(fileIdx);
+                    exactCount += chart.Test_CandleCount;
+                }
+
+                expectedTotalCandles = exactCount;
+            }
+
+            Assert.True(expectedTotalFiles > 0, "L'index doit contenir au moins un fichier.");
+
+            chart.Test_InitializeFilesAndCandlesMode();
+
+            int initialLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
+            int initialCandleIdx = chart.Test_GetUiCandleCurrentIdx();
+            var initialWindowCandles = chart.Test_GetUiWindowCandles();
+
+            Assert.True(initialLoadedFileIdx >= 0, $"FileIdx initial invalide: {initialLoadedFileIdx}");
+            Assert.True(initialCandleIdx >= 0, $"CurrentIdx initial invalide: {initialCandleIdx}");
+            Assert.NotNull(initialWindowCandles);
+            Assert.NotEmpty(initialWindowCandles);
+
+            var zoneConfigs = chart.Test_GetSessionZoneConfigs();
+
+            var referenceZoneConfig = zoneConfigs.First(z => z.Name == referenceZoneName);
+            var targetZoneConfig = zoneConfigs.First(z => z.Name == targetZoneName);
+
+            var referenceZone = new SessionHighLowIndicator(
+                referenceZoneConfig.Name,
+                referenceZoneConfig.Start,
+                referenceZoneConfig.End);
+
+            var targetZone = new SessionHighLowIndicator(
+                targetZoneConfig.Name,
+                targetZoneConfig.Start,
+                targetZoneConfig.End);
+
+            var visitedFileIndexes = new HashSet<int> { initialLoadedFileIdx };
+            HashSet<long>? visitedTimestamps = enableStrictUniqueTimestampCheck ? new HashSet<long>() : null;
+
+            long totalCandlesRead = 0;
+            long? previousGlobalTimestamp = null;
+
+            long? lastReferenceClosedEndTs = null;
+            long? lastTargetClosedEndTs = null;
+
+            long? pendingReferenceEndTs = null;
+            double? pendingReferenceValue = null;
+
+            int compareOk = 0;
+            int compareKo = 0;
+            int skippedMissingReference = 0;
+            int skippedDateMismatch = 0;
+
+            static double SelectMetric(SessionHighLowIndicator.Output output, ZoneMetric metric)
+            {
+                return metric switch
+                {
+                    ZoneMetric.High => output.LastHigh,
+                    ZoneMetric.Low => output.LastLow,
+                    _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, null)
+                };
+            }
+
+            static DateTime UtcFromNs(long tsNs)
+            {
+                long sec = tsNs / 1_000_000_000L;
+                return DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
+            }
+
+            void ProcessCandle(global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleItem candle)
+            {
+                // 1) Contrôle de progression globale
+                if (previousGlobalTimestamp.HasValue)
+                {
+                    Assert.True(
+                        candle.Ts > previousGlobalTimestamp.Value,
+                        $"Timestamp non croissant détecté. currentTs={candle.Ts} <= previousTs={previousGlobalTimestamp.Value}");
+                }
+
+                if (visitedTimestamps is not null)
+                {
+                    Assert.True(
+                        visitedTimestamps.Add(candle.Ts),
+                        $"Timestamp dupliqué détecté: {candle.Ts}");
+                }
+
+                previousGlobalTimestamp = candle.Ts;
+                totalCandlesRead++;
+
+                // 2) Feed des 2 zones
+                var referenceOutput = referenceZone.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
+                var targetOutput = targetZone.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
+
+                // 3) Détection fermeture nouvelle zone de référence
+                if (referenceOutput is not null && referenceOutput.HasLast)
+                {
+                    if (!lastReferenceClosedEndTs.HasValue || referenceOutput.LastEndTs != lastReferenceClosedEndTs.Value)
+                    {
+                        lastReferenceClosedEndTs = referenceOutput.LastEndTs;
+                        pendingReferenceEndTs = referenceOutput.LastEndTs;
+                        pendingReferenceValue = SelectMetric(referenceOutput, referenceMetric);
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[REFERENCE CLOSED] " +
+                                $"zone={referenceZoneName} " +
+                                $"date={UtcFromNs(referenceOutput.LastEndTs):yyyy-MM-dd} " +
+                                $"value={pendingReferenceValue}");
+                        }
+                    }
+                }
+
+                // 4) Détection fermeture nouvelle zone cible
+                if (targetOutput is not null && targetOutput.HasLast)
+                {
+                    if (!lastTargetClosedEndTs.HasValue || targetOutput.LastEndTs != lastTargetClosedEndTs.Value)
+                    {
+                        lastTargetClosedEndTs = targetOutput.LastEndTs;
+
+                        if (!pendingReferenceEndTs.HasValue || !pendingReferenceValue.HasValue)
+                        {
+                            skippedMissingReference++;
+
+                            if (enableVerboseDebug)
+                            {
+                                Debug.WriteLine(
+                                    $"[TARGET CLOSED - SKIP NO REFERENCE] " +
+                                    $"zone={targetZoneName} " +
+                                    $"date={UtcFromNs(targetOutput.LastEndTs):yyyy-MM-dd}");
+                            }
+
+                            return;
+                        }
+
+                        var referenceDate = UtcFromNs(pendingReferenceEndTs.Value).Date;
+                        var targetDate = UtcFromNs(targetOutput.LastEndTs).Date;
+
+                        if (referenceDate != targetDate)
+                        {
+                            skippedDateMismatch++;
+
+                            if (enableVerboseDebug)
+                            {
+                                Debug.WriteLine(
+                                    $"[TARGET CLOSED - SKIP DATE MISMATCH] " +
+                                    $"referenceDate={referenceDate:yyyy-MM-dd} " +
+                                    $"targetDate={targetDate:yyyy-MM-dd}");
+                            }
+
+                            pendingReferenceEndTs = null;
+                            pendingReferenceValue = null;
+                            return;
+                        }
+
+                        double targetValue = SelectMetric(targetOutput, targetMetric);
+                        bool isOk = Comparison(targetValue, pendingReferenceValue.Value);
+
+                        if (isOk)
+                            compareOk++;
+                        else
+                            compareKo++;
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[COMPARE] " +
+                                $"date={targetDate:yyyy-MM-dd} " +
+                                $"referenceZone={referenceZoneName} referenceMetric={referenceMetric} referenceValue={pendingReferenceValue.Value} " +
+                                $"targetZone={targetZoneName} targetMetric={targetMetric} targetValue={targetValue} " +
+                                $"result={(isOk ? "OK" : "KO")}");
+                        }
+
+                        // cycle consommé
+                        pendingReferenceEndTs = null;
+                        pendingReferenceValue = null;
+                    }
+                }
+            }
+
+            // ==================================================
+            // FENÊTRE INITIALE
+            // ==================================================
+            foreach (var candle in initialWindowCandles)
+            {
+                ProcessCandle(candle);
+            }
+
+            int iterationCount = 0;
+            int previousLoadedFileIdx = initialLoadedFileIdx;
+            int previousCandleIdx = initialCandleIdx;
+
+            // ==================================================
+            // ACT
+            // ==================================================
+            while (chart.Test_AdvanceCandlesNext())
+            {
+                iterationCount++;
+
+                int currentLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
+                int currentCandleIdx = chart.Test_GetUiCandleCurrentIdx();
+                int nextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
+
+                var addedCandles = chart.Test_GetLastAddedCandles();
+
+                Assert.True(currentLoadedFileIdx >= 0, $"FileIdx invalide après loadNext: {currentLoadedFileIdx}");
+                Assert.True(currentCandleIdx >= 0, $"CurrentIdx invalide après loadNext: {currentCandleIdx}");
+                Assert.NotNull(addedCandles);
+
+                visitedFileIndexes.Add(currentLoadedFileIdx);
+
+                if (currentLoadedFileIdx == previousLoadedFileIdx)
+                {
+                    Assert.True(
+                        currentCandleIdx > previousCandleIdx,
+                        $"Le curseur candle doit avancer dans le même fichier. fileIdx={currentLoadedFileIdx}, before={previousCandleIdx}, after={currentCandleIdx}");
+                }
+                else
+                {
+                    Assert.True(
+                        currentLoadedFileIdx > previousLoadedFileIdx,
+                        $"Le fileIdx doit avancer strictement. before={previousLoadedFileIdx}, after={currentLoadedFileIdx}");
+                }
+
+                foreach (var candle in addedCandles)
+                {
+                    ProcessCandle(candle);
+                }
+
+                previousLoadedFileIdx = currentLoadedFileIdx;
+                previousCandleIdx = currentCandleIdx;
+
+                if (expectedTotalCandles.HasValue)
+                {
+                    Assert.True(
+                        iterationCount <= expectedTotalCandles.Value,
+                        $"Boucle suspecte: trop d'itérations. iterations={iterationCount}, expectedTotalCandles={expectedTotalCandles.Value}, next={nextCursorIdx}");
+                }
+            }
+
+            // ==================================================
+            // ASSERT FINAL
+            // ==================================================
+            Assert.True(iterationCount > 0, "Le test doit effectuer au moins un loadNext().");
+
+            int finalLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
+            int finalCandleIdx = chart.Test_GetUiCandleCurrentIdx();
+            int finalNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
+
+            Assert.True(finalLoadedFileIdx >= 0, $"FileIdx final invalide: {finalLoadedFileIdx}");
+            Assert.True(finalCandleIdx >= 0, $"CurrentIdx final invalide: {finalCandleIdx}");
+            Assert.Equal(-1, finalNextCursorIdx);
+
+            Assert.Equal(expectedTotalFiles, visitedFileIndexes.Count);
+
+            if (expectedTotalCandles.HasValue)
+                Assert.Equal(expectedTotalCandles.Value, totalCandlesRead);
+
+            if (visitedTimestamps is not null)
+                Assert.Equal(totalCandlesRead, visitedTimestamps.Count);
+
+            int totalComparisons = compareOk + compareKo;
+
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine("[ZONE COMPARISON SUMMARY]");
+            Debug.WriteLine($"referenceZone={referenceZoneName}");
+            Debug.WriteLine($"referenceMetric={referenceMetric}");
+            Debug.WriteLine($"targetZone={targetZoneName}");
+            Debug.WriteLine($"targetMetric={targetMetric}");
+            Debug.WriteLine($"filesRead={visitedFileIndexes.Count}/{expectedTotalFiles}");
+            Debug.WriteLine($"candlesRead={totalCandlesRead}{(expectedTotalCandles.HasValue ? $"/{expectedTotalCandles.Value}" : "")}");
+            Debug.WriteLine($"compareOk={compareOk}");
+            Debug.WriteLine($"compareKo={compareKo}");
+            Debug.WriteLine($"compareOkRate={(totalComparisons > 0 ? (double)compareOk / totalComparisons : 0):P2}");
+            Debug.WriteLine($"totalComparisons={totalComparisons}");
+            Debug.WriteLine($"skippedMissingReference={skippedMissingReference}");
+            Debug.WriteLine($"skippedDateMismatch={skippedDateMismatch}");
+            Debug.WriteLine("==================================================");
+
+            Assert.True(
+                totalComparisons > 0,
+                "Aucune comparaison entre les deux zones n'a été produite.");
         }
     }
 }
