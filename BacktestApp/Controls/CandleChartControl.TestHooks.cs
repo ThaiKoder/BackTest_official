@@ -215,4 +215,33 @@ public sealed partial class CandleChartControl
 
 
 
+    internal IReadOnlyList<long> Test_GetLastAddedTimestamps()
+    {
+        if (_uiCandleStep is null)
+            return Array.Empty<long>();
+
+        var result = new List<long>(_uiCandleStep.Added.Count);
+        foreach (var candle in _uiCandleStep.Added)
+        {
+            if (candle.Idx != -1)
+                result.Add(candle.Ts);
+        }
+
+        return result;
+    }
+
+    internal IReadOnlyList<long> Test_GetLastRemovedTimestamps()
+    {
+        if (_uiCandleStep is null)
+            return Array.Empty<long>();
+
+        var result = new List<long>(_uiCandleStep.Removed.Count);
+        foreach (var candle in _uiCandleStep.Removed)
+        {
+            if (candle.Idx != -1)
+                result.Add(candle.Ts);
+        }
+
+        return result;
+    }
 }

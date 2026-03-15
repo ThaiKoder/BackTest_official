@@ -71,8 +71,8 @@ public class CursorNext
         // Arrange
         var chart = new global::BacktestApp.Controls.CandleChartControl();
 
-        // Calcul de référence hors chemin UI :
-        // on somme toutes les candles de tous les fichiers de l'index
+        // Référence métier hors chemin UI :
+        // somme exacte de toutes les candles de tous les fichiers
         chart.Test_LoadIndexFile("data/bin/_index.bin");
 
         long expectedTotalFiles = chart.Test_IndexCount;
@@ -85,32 +85,63 @@ public class CursorNext
         }
 
         Assert.True(expectedTotalFiles > 0, "L'index doit contenir au moins un fichier.");
-        Assert.True(expectedTotalCandles > 0, "Le nombre total de candles doit être > 0.");
+        Assert.True(expectedTotalCandles > 0, "Le nombre total de candles attendu doit être > 0.");
 
-        // Maintenant on teste le vrai chemin UI
+        // Vrai chemin UI
         chart.Test_InitializeFilesAndCandlesMode();
 
         int initialFileIdx = chart.Test_GetUiLoadedFileIdx();
         int initialCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
         int initialNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
-        var initialTs = chart.Test_GetLoadedTimestamps();
+        var initialWindow = chart.Test_GetLoadedTimestamps().ToArray();
 
         Assert.True(initialFileIdx >= 0, $"FileIdx initial invalide: {initialFileIdx}");
         Assert.True(initialCurrentIdx >= 0, $"CurrentIdx initial invalide: {initialCurrentIdx}");
-        Assert.NotNull(initialTs);
-        Assert.NotEmpty(initialTs);
+        Assert.NotNull(initialWindow);
+        Assert.NotEmpty(initialWindow);
 
-        var allSeenTs = new HashSet<long>();
-        var seenFiles = new HashSet<int> { initialFileIdx };
-
-        foreach (var ts in initialTs)
+        // Vérifie que la fenêtre courante est strictement croissante
+        static void AssertStrictlyIncreasing(IReadOnlyList<long> ts, string messagePrefix)
         {
-            Assert.True(allSeenTs.Add(ts), $"Timestamp dupliqué dans la fenêtre initiale: ts={ts}");
+            for (int i = 1; i < ts.Count; i++)
+            {
+                Assert.True(
+                    ts[i] > ts[i - 1],
+                    $"{messagePrefix} timestamps non strictement croissants à i={i}. prev={ts[i - 1]}, cur={ts[i]}");
+            }
+        }
+
+        AssertStrictlyIncreasing(initialWindow, "[INITIAL]");
+
+        var seenFiles = new HashSet<int> { initialFileIdx };
+        var allSeenTs = new HashSet<long>();
+
+        long? previousGlobalTs = null;
+        long totalCandlesRead = 0;
+
+        // La fenêtre initiale représente déjà des candles vues
+        foreach (var ts in initialWindow)
+        {
+            if (previousGlobalTs.HasValue)
+            {
+                Assert.True(
+                    ts > previousGlobalTs.Value,
+                    $"[INITIAL] timestamp non croissant. current={ts} <= previous={previousGlobalTs.Value}");
+            }
+
+            Assert.True(
+                allSeenTs.Add(ts),
+                $"[INITIAL] timestamp dupliqué détecté: {ts}");
+
+            previousGlobalTs = ts;
+            totalCandlesRead++;
         }
 
         int iterations = 0;
+
         int previousFileIdx = initialFileIdx;
         int previousCurrentIdx = initialCurrentIdx;
+        var previousWindow = initialWindow;
 
         // Act
         while (chart.Test_AdvanceCandlesNext())
@@ -120,88 +151,163 @@ public class CursorNext
             int currentFileIdx = chart.Test_GetUiLoadedFileIdx();
             int currentIdx = chart.Test_GetUiCandleCurrentIdx();
             int nextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
-            var loadedTs = chart.Test_GetLoadedTimestamps();
+
+            var currentWindow = chart.Test_GetLoadedTimestamps().ToArray();
+            var addedTs = chart.Test_GetLastAddedTimestamps().ToArray();
+            var removedTs = chart.Test_GetLastRemovedTimestamps().ToArray();
+
+            int removedCount = chart.Test_GetLastRemovedCount();
+            int addedCount = chart.Test_GetLastAddedCount();
 
             Assert.True(currentFileIdx >= 0, $"FileIdx invalide après loadNext: {currentFileIdx}");
             Assert.True(currentIdx >= 0, $"CurrentIdx invalide après loadNext: {currentIdx}");
-            Assert.NotNull(loadedTs);
-            Assert.NotEmpty(loadedTs);
+            Assert.NotNull(currentWindow);
+            Assert.NotEmpty(currentWindow);
 
             seenFiles.Add(currentFileIdx);
 
-            // Si on reste dans le même fichier, le curseur candle doit avancer
+            // 1) La fenêtre courante doit être strictement croissante
+            AssertStrictlyIncreasing(currentWindow, $"[STEP {iterations}] fileIdx={currentFileIdx}");
+
+            // 2) Cohérence counts <-> timestamps exposés par Added/Removed
+            Assert.Equal(removedCount, removedTs.Length);
+            Assert.Equal(addedCount, addedTs.Length);
+
+            // 3) Si on reste dans le même fichier :
+            //    - le currentIdx doit avancer
+            //    - la fenêtre doit shifter à gauche
+            //    - seule la partie de droite doit être append
             if (currentFileIdx == previousFileIdx)
             {
                 Assert.True(
                     currentIdx > previousCurrentIdx,
                     $"Le curseur candle doit avancer dans le même fichier. " +
                     $"fileIdx={currentFileIdx}, before={previousCurrentIdx}, after={currentIdx}");
+
+                Assert.True(
+                    removedCount >= 0,
+                    $"removedCount invalide: {removedCount}");
+
+                Assert.True(
+                    addedCount >= 0,
+                    $"addedCount invalide: {addedCount}");
+
+                int remain = previousWindow.Length - removedCount;
+                Assert.True(
+                    remain >= 0,
+                    $"remain invalide. previousWindow.Length={previousWindow.Length}, removedCount={removedCount}");
+
+                // Les removed doivent correspondre au préfixe qui sort
+                for (int i = 0; i < removedTs.Length; i++)
+                {
+                    Assert.Equal(
+                        previousWindow[i],
+                        removedTs[i]);
+                }
+
+                // La partie restante doit être conservée à gauche
+                for (int i = 0; i < remain; i++)
+                {
+                    Assert.Equal(
+                        previousWindow[i + removedCount],
+                        currentWindow[i]);
+                }
+
+                // La partie appendée à droite doit correspondre exactement à Added
+                var appendedPart = currentWindow.Skip(remain).ToArray();
+
+                Assert.Equal(addedTs.Length, appendedPart.Length);
+
+                for (int i = 0; i < addedTs.Length; i++)
+                {
+                    Assert.Equal(
+                        addedTs[i],
+                        appendedPart[i]);
+                }
             }
             else
             {
-                // Si on change de fichier, on repart sur un curseur valide
+                // 4) Si on change de fichier :
+                //    - le fileIdx doit avancer
+                //    - on repart sur un currentIdx valide
                 Assert.True(
                     currentFileIdx > previousFileIdx,
                     $"Le fileIdx doit avancer strictement. before={previousFileIdx}, after={currentFileIdx}");
 
                 Assert.True(
                     currentIdx >= 0,
-                    $"Le curseur candle du nouveau fichier doit être valide. fileIdx={currentFileIdx}, currentIdx={currentIdx}");
-            }
+                    $"Le curseur du nouveau fichier doit être valide. fileIdx={currentFileIdx}, currentIdx={currentIdx}");
 
-            // Les timestamps de la fenêtre courante doivent être strictement croissants
-            for (int i = 1; i < loadedTs.Count; i++)
-            {
+                // Sur changement de fichier, on accepte un rechargement complet de fenêtre.
+                // On impose juste que Added représente bien toutes les nouvelles candles visibles.
                 Assert.True(
-                    loadedTs[i] > loadedTs[i - 1],
-                    $"Les timestamps chargés doivent être strictement croissants. " +
-                    $"fileIdx={currentFileIdx}, i={i}, prev={loadedTs[i - 1]}, cur={loadedTs[i]}");
+                    addedTs.Length > 0,
+                    $"Le changement de fichier doit charger au moins une candle. fileIdx={currentFileIdx}");
             }
 
-            foreach (var ts in loadedTs)
+            // 5) Vérifie que CHAQUE nouvelle candle ajoutée :
+            //    - est strictement > à la précédente globalement
+            //    - n'est pas un doublon
+            foreach (var ts in addedTs)
             {
-                allSeenTs.Add(ts);
+                if (previousGlobalTs.HasValue)
+                {
+                    Assert.True(
+                        ts > previousGlobalTs.Value,
+                        $"Timestamp non croissant sur les nouvelles candles ajoutées. " +
+                        $"current={ts} <= previous={previousGlobalTs.Value}, fileIdx={currentFileIdx}, currentIdx={currentIdx}");
+                }
+
+                Assert.True(
+                    allSeenTs.Add(ts),
+                    $"Timestamp dupliqué détecté dans les candles ajoutées: {ts}, fileIdx={currentFileIdx}, currentIdx={currentIdx}");
+
+                previousGlobalTs = ts;
+                totalCandlesRead++;
             }
 
             previousFileIdx = currentFileIdx;
             previousCurrentIdx = currentIdx;
+            previousWindow = currentWindow;
 
             Assert.True(
                 iterations <= expectedTotalCandles,
                 $"Boucle suspecte: trop d'itérations. iterations={iterations}, expectedTotalCandles={expectedTotalCandles}, next={nextCursorIdx}");
         }
 
-        // Assert
+        // Assert final
         Assert.True(iterations > 0, "Le test doit effectuer au moins un loadNext().");
 
-        var finalFileIdx = chart.Test_GetUiFileCurrentIdx();
-        var finalCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
-        var finalNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
-        var finalTs = chart.Test_GetLoadedTimestamps();
+        int finalLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
+        int finalCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
+        int finalNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
+        var finalWindow = chart.Test_GetLoadedTimestamps().ToArray();
 
-        Assert.True(finalFileIdx >= 0, $"FileIdx final invalide: {finalFileIdx}");
+        Assert.True(finalLoadedFileIdx >= 0, $"FileIdx final invalide: {finalLoadedFileIdx}");
         Assert.True(finalCurrentIdx >= 0, $"CurrentIdx final invalide: {finalCurrentIdx}");
         Assert.Equal(-1, finalNextCursorIdx);
 
-        Assert.NotNull(finalTs);
-        Assert.NotEmpty(finalTs);
+        Assert.NotNull(finalWindow);
+        Assert.NotEmpty(finalWindow);
+        AssertStrictlyIncreasing(finalWindow, "[FINAL]");
 
         // Tous les fichiers de l'index doivent avoir été vus
         Assert.Equal(expectedTotalFiles, seenFiles.Count);
 
-        // Toutes les candles de tous les fichiers doivent avoir été vues au moins une fois
+        // Toutes les candles doivent avoir été lues exactement une fois
+        Assert.Equal(expectedTotalCandles, totalCandlesRead);
         Assert.Equal(expectedTotalCandles, allSeenTs.Count);
 
         // Appel supplémentaire après fin => no-op
         chart.loadNext();
 
-        Assert.Equal(finalFileIdx, chart.Test_GetUiFileCurrentIdx());
+        Assert.Equal(finalLoadedFileIdx, chart.Test_GetUiLoadedFileIdx());
         Assert.Equal(finalCurrentIdx, chart.Test_GetUiCandleCurrentIdx());
         Assert.Equal(-1, chart.Test_GetUiCandleNextCursorIdx());
-        Assert.True(finalTs.SequenceEqual(chart.Test_GetLoadedTimestamps()),
+        Assert.True(
+            finalWindow.SequenceEqual(chart.Test_GetLoadedTimestamps()),
             "Après la fin du dernier fichier, loadNext() ne doit plus modifier la fenêtre.");
     }
-
     [Fact]
     public void LoadNext_Should_Shift_Left_And_Append_Only_New_Candles()
     {
