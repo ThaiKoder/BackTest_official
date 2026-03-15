@@ -162,4 +162,36 @@ public class CursorNext
         Assert.True(finalTs.SequenceEqual(chart.Test_GetLoadedTimestamps()),
             "Après la fin du fichier, loadNext() ne doit plus modifier la fenêtre.");
     }
+
+
+    [Fact]
+    public void LoadNext_Should_Shift_Left_And_Append_Only_New_Candles()
+    {
+        var chart = new global::BacktestApp.Controls.CandleChartControl();
+        chart.Test_InitializeFilesAndCandlesMode();
+
+        var before = chart.Test_GetLoadedTimestamps().ToArray();
+        Assert.NotEmpty(before);
+
+        chart.loadNext();
+
+        var after = chart.Test_GetLoadedTimestamps().ToArray();
+        Assert.NotEmpty(after);
+
+        // Dans ton cas range=3 => step=4, mais au début du fichier
+        // Removed peut être plus petit que Added.
+        int removed = chart.Test_GetLastRemovedCount();
+        int added = chart.Test_GetLastAddedCount();
+
+        Assert.True(removed >= 0);
+        Assert.True(added >= 0);
+
+        int remain = before.Length - removed;
+        Assert.True(remain >= 0);
+
+        for (int i = 0; i < remain; i++)
+        {
+            Assert.Equal(before[i + removed], after[i]);
+        }
+    }
 }

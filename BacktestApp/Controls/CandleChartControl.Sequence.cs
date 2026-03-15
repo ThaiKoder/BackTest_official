@@ -53,6 +53,74 @@ public sealed partial class CandleChartControl
 
     private void ApplyCandleStepToWindow(CandleIndex.CandleCursorStep step, bool resetView)
     {
+        // 1) Cas initial / fallback : on reconstruit depuis step.Window
+        if (resetView || _windowLoaded <= 0)
+        {
+            RebuildWindowFromStep(step);
+
+            if (resetView)
+            {
+                _xInited = false;
+                _yInited = false;
+            }
+
+            DebugMessage.Write($"[CandleChartControl] FULL step current={step.CurrentIdx} next={step.NextCursorIdx} loaded={_windowLoaded}");
+            InvalidateVisual();
+            return;
+        }
+
+        // 2) Cas incrémental : on exploite Removed + Added
+        int removeCount = step.Removed.Count;
+        int addCount = step.Added.Count;
+
+        // sécurité
+        if (removeCount < 0) removeCount = 0;
+        if (addCount < 0) addCount = 0;
+        if (removeCount > _windowLoaded) removeCount = _windowLoaded;
+
+        int remain = _windowLoaded - removeCount;
+
+        // Shift gauche sur les buffers existants
+        if (removeCount > 0 && remain > 0)
+        {
+            Array.Copy(_ts, removeCount, _ts, 0, remain);
+            Array.Copy(_o, removeCount, _o, 0, remain);
+            Array.Copy(_h, removeCount, _h, 0, remain);
+            Array.Copy(_l, removeCount, _l, 0, remain);
+            Array.Copy(_c, removeCount, _c, 0, remain);
+            Array.Copy(_v, removeCount, _v, 0, remain);
+            Array.Copy(_sym, removeCount, _sym, 0, remain);
+        }
+
+        // Append des nouvelles candles à droite
+        int write = remain;
+        for (int i = 0; i < addCount && write < WindowCount; i++, write++)
+        {
+            var candle = step.Added[i];
+
+            _ts[write] = candle.Ts;
+            _o[write] = candle.O;
+            _h[write] = candle.H;
+            _l[write] = candle.L;
+            _c[write] = candle.C;
+            _v[write] = candle.V;
+            _sym[write] = candle.Sym;
+        }
+
+        _windowLoaded = write;
+        _windowStart += removeCount;
+        _fileCount = _uiCandleIndex?.Count ?? 0;
+
+        DebugMessage.Write(
+            $"[CandleChartControl] INCR step current={step.CurrentIdx} next={step.NextCursorIdx} " +
+            $"removed={removeCount} added={addCount} loaded={_windowLoaded} windowStart={_windowStart}");
+
+        InvalidateVisual();
+    }
+
+
+    private void RebuildWindowFromStep(CandleIndex.CandleCursorStep step)
+    {
         int filled = 0;
         int firstValidIdx = -1;
 
@@ -80,16 +148,8 @@ public sealed partial class CandleChartControl
         _windowLoaded = filled;
         _windowStart = Math.Max(0, firstValidIdx);
         _fileCount = _uiCandleIndex?.Count ?? 0;
-
-        if (resetView)
-        {
-            _xInited = false;
-            _yInited = false;
-        }
-
-        DebugMessage.Write($"[CandleChartControl] step current={step.CurrentIdx} next={step.NextCursorIdx} loaded={_windowLoaded}");
-        InvalidateVisual();
     }
+
 
     private bool AdvanceCandlesNext()
     {

@@ -92,6 +92,14 @@ public sealed partial class CandleChartControl
 
 
 
+    internal int Test_GetLastRemovedCount()
+    => _uiCandleStep?.Removed.Count ?? 0;
+
+    internal int Test_GetLastAddedCount()
+        => _uiCandleStep?.Added.Count ?? 0;
+
+
+
 
     // Met le centre exactement au milieu de la fenêtre actuelle
     internal void Test_SetCenterToWindowMiddle()
