@@ -72,7 +72,7 @@ public sealed partial class CandleChartControl
             Debug.WriteLine("CandleIndex Constructor");
         }
 
-        public void Load(string filePath, int maxAllowedRange)
+        public void Load(string filePath)
         {
             Dispose();
 
@@ -82,12 +82,9 @@ public sealed partial class CandleChartControl
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("Fichier candle introuvable.", filePath);
 
-            if (maxAllowedRange < 0)
-                throw new ArgumentOutOfRangeException(nameof(maxAllowedRange), "maxAllowedRange doit être >= 0.");
 
             _file = new MmapCandleFile(filePath);
             _count = _file.Count;
-            _maxAllowedRange = maxAllowedRange;
 
             ResetCursor();
         }
@@ -138,11 +135,6 @@ public sealed partial class CandleChartControl
 
             if (range < 0)
                 throw new ArgumentOutOfRangeException(nameof(range), "range doit être >= 0.");
-
-            if (_maxAllowedRange >= 0 && range > _maxAllowedRange)
-                throw new ArgumentOutOfRangeException(
-                    nameof(range),
-                    $"Le range candle ({range}) doit être <= au range files ({_maxAllowedRange}).");
 
             if (_count <= 0)
                 return new CandleCursorStep(-1, -1, range, new List<CandleItem>(), new List<CandleItem>(), new List<CandleItem>());
@@ -259,11 +251,6 @@ public sealed partial class CandleChartControl
 
             if (range < 0)
                 throw new ArgumentOutOfRangeException(nameof(range), "range doit être >= 0.");
-
-            if (_maxAllowedRange >= 0 && range > _maxAllowedRange)
-                throw new ArgumentOutOfRangeException(
-                    nameof(range),
-                    $"Le range candle ({range}) doit être <= au range files ({_maxAllowedRange}).");
 
             if (_count <= 0 || cursorIdx < 0 || cursorIdx >= _count)
                 return Array.Empty<int>();

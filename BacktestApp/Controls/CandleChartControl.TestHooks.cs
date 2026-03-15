@@ -195,7 +195,7 @@ public sealed partial class CandleChartControl
 
         _testCandleIndex?.Dispose();
         _testCandleIndex = Test_candleReader();
-        _testCandleIndex.Load(path, 3);
+        _testCandleIndex.Load(path);
     }
 
 

@@ -12,7 +12,7 @@ public sealed partial class CandleChartControl
     private CandleIndex.CandleCursorStep? _uiCandleStep;
 
     private const int UiFileRange = 3;
-    private const int UiCandleRange = 3;
+    private const int UiCandleRange = 10;
 
     private int RingPhysicalIndex(int logicalIndex)
     {
@@ -110,7 +110,7 @@ public sealed partial class CandleChartControl
 
         _uiCandleIndex?.Dispose();
         _uiCandleIndex = new CandleIndex();
-        _uiCandleIndex.Load(filePath, UiFileRange);
+        _uiCandleIndex.Load(filePath);
 
         _uiCandleStep = _uiCandleIndex.CandlesNext(0, UiCandleRange);
         ApplyCandleStepToWindow(_uiCandleStep, resetView: true);
