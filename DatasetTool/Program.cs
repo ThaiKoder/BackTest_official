@@ -464,8 +464,8 @@ internal static class Program
 
         ///////////
 
-        //return await WriteJCMain(args);
-        return await ReadJC(args);
+        return await WriteJCMain(args);
+        //return await ReadJC(args);
     }
 
 

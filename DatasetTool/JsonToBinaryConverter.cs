@@ -312,6 +312,10 @@ namespace DatasetTool
 
         private static void WriteCandleIfUnique(BinaryWriter bw, Candle1m candle, HashSet<long> seenTsNs)
         {
+            // ✅ ignore tout ce qui n'est pas un contrat 4 caractères valide
+            if (candle.SymbolCode == 0)
+                return;
+
             byte quarter = GetQuarter(candle.TsNs);
 
             if (quarter != candle.SymbolCode)
@@ -328,7 +332,6 @@ namespace DatasetTool
             bw.Write(candle.V);
             bw.Write(candle.SymbolCode);
         }
-
         private static void EnsureCapacity(ref byte[] arr, int needed)
         {
             if (arr.Length >= needed)
@@ -426,12 +429,16 @@ namespace DatasetTool
 
             value = value.Trim();
 
+            // ✅ on ne garde que les contrats à 4 caractères
+            if (value.Length != 4)
+                return 0;
+
             if (value.StartsWith("NQH", StringComparison.OrdinalIgnoreCase)) return 1;
             if (value.StartsWith("NQM", StringComparison.OrdinalIgnoreCase)) return 2;
             if (value.StartsWith("NQU", StringComparison.OrdinalIgnoreCase)) return 3;
             if (value.StartsWith("NQZ", StringComparison.OrdinalIgnoreCase)) return 4;
 
-            return 5;
+            return 0;
         }
     }
 }
