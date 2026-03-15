@@ -256,7 +256,7 @@ public sealed partial class CandleChartControl
         while (lo <= hi)
         {
             int mid = (lo + hi) >> 1;
-            double t = TsNsToEpochSeconds(_ts[mid]);
+            double t = TsNsToEpochSeconds(RingTsAtLogical(mid));
 
             if (t < targetTimeSec) lo = mid + 1;
             else if (t > targetTimeSec) hi = mid - 1;
@@ -266,12 +266,11 @@ public sealed partial class CandleChartControl
         int i0 = ClampInt(lo, 0, _windowLoaded - 1);
         int i1 = ClampInt(lo - 1, 0, _windowLoaded - 1);
 
-        double d0 = Math.Abs(TsNsToEpochSeconds(_ts[i0]) - targetTimeSec);
-        double d1 = Math.Abs(TsNsToEpochSeconds(_ts[i1]) - targetTimeSec);
+        double d0 = Math.Abs(TsNsToEpochSeconds(RingTsAtLogical(i0)) - targetTimeSec);
+        double d1 = Math.Abs(TsNsToEpochSeconds(RingTsAtLogical(i1)) - targetTimeSec);
 
         return d0 < d1 ? i0 : i1;
     }
-
 
     // Taille du "pas" quand tu vas au précédent/suivant.
     // Ex: 1/2 fenêtre => overlap => navigation fluide

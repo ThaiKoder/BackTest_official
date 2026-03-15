@@ -14,6 +14,71 @@ public sealed partial class CandleChartControl
     private const int UiFileRange = 3;
     private const int UiCandleRange = 3;
 
+    private int RingPhysicalIndex(int logicalIndex)
+    {
+        return (_ringHead + logicalIndex) % WindowCount;
+    }
+
+    private void RingClear()
+    {
+        _ringHead = 0;
+        _ringCount = 0;
+        _ringFirstGlobalIdx = 0;
+    }
+
+    private void RingPushBack(long ts, long o, long h, long l, long c, uint v, byte sym)
+    {
+        if (_ringCount < WindowCount)
+        {
+            int p = (_ringHead + _ringCount) % WindowCount;
+            _ts[p] = ts;
+            _o[p] = o;
+            _h[p] = h;
+            _l[p] = l;
+            _c[p] = c;
+            _v[p] = v;
+            _sym[p] = sym;
+            _ringCount++;
+            return;
+        }
+
+        // overwrite le plus ancien
+        _ts[_ringHead] = ts;
+        _o[_ringHead] = o;
+        _h[_ringHead] = h;
+        _l[_ringHead] = l;
+        _c[_ringHead] = c;
+        _v[_ringHead] = v;
+        _sym[_ringHead] = sym;
+
+        _ringHead = (_ringHead + 1) % WindowCount;
+        _ringFirstGlobalIdx++;
+    }
+
+    private void RingPopFront(int count)
+    {
+        if (count <= 0 || _ringCount <= 0)
+            return;
+
+        if (count > _ringCount)
+            count = _ringCount;
+
+        _ringHead = (_ringHead + count) % WindowCount;
+        _ringCount -= count;
+        _ringFirstGlobalIdx += count;
+
+        if (_ringCount == 0)
+            _ringHead = 0;
+    }
+
+    private long RingTsAtLogical(int logicalIndex) => _ts[RingPhysicalIndex(logicalIndex)];
+    private long RingOAtLogical(int logicalIndex) => _o[RingPhysicalIndex(logicalIndex)];
+    private long RingHAtLogical(int logicalIndex) => _h[RingPhysicalIndex(logicalIndex)];
+    private long RingLAtLogical(int logicalIndex) => _l[RingPhysicalIndex(logicalIndex)];
+    private long RingCAtLogical(int logicalIndex) => _c[RingPhysicalIndex(logicalIndex)];
+    private uint RingVAtLogical(int logicalIndex) => _v[RingPhysicalIndex(logicalIndex)];
+    private byte RingSymAtLogical(int logicalIndex) => _sym[RingPhysicalIndex(logicalIndex)];
+
     private void InitializeFilesAndCandlesMode()
     {
         if (_uiFileIndex != null)
@@ -53,67 +118,50 @@ public sealed partial class CandleChartControl
 
     private void ApplyCandleStepToWindow(CandleIndex.CandleCursorStep step, bool resetView)
     {
-        // 1) Cas initial / fallback : on reconstruit depuis step.Window
-        if (resetView || _windowLoaded <= 0)
+        if (resetView || _ringCount == 0)
         {
-            RebuildWindowFromStep(step);
+            RingClear();
 
-            if (resetView)
+            int firstValidIdx = -1;
+
+            for (int i = 0; i < step.Window.Count; i++)
             {
-                _xInited = false;
-                _yInited = false;
+                var candle = step.Window[i];
+                if (candle.Idx == -1)
+                    continue;
+
+                if (firstValidIdx == -1)
+                    firstValidIdx = candle.Idx;
+
+                RingPushBack(candle.Ts, candle.O, candle.H, candle.L, candle.C, candle.V, candle.Sym);
             }
 
-            DebugMessage.Write($"[CandleChartControl] FULL step current={step.CurrentIdx} next={step.NextCursorIdx} loaded={_windowLoaded}");
-            InvalidateVisual();
-            return;
+            _ringFirstGlobalIdx = Math.Max(0, firstValidIdx);
         }
-
-        // 2) Cas incrémental : on exploite Removed + Added
-        int removeCount = step.Removed.Count;
-        int addCount = step.Added.Count;
-
-        // sécurité
-        if (removeCount < 0) removeCount = 0;
-        if (addCount < 0) addCount = 0;
-        if (removeCount > _windowLoaded) removeCount = _windowLoaded;
-
-        int remain = _windowLoaded - removeCount;
-
-        // Shift gauche sur les buffers existants
-        if (removeCount > 0 && remain > 0)
+        else
         {
-            Array.Copy(_ts, removeCount, _ts, 0, remain);
-            Array.Copy(_o, removeCount, _o, 0, remain);
-            Array.Copy(_h, removeCount, _h, 0, remain);
-            Array.Copy(_l, removeCount, _l, 0, remain);
-            Array.Copy(_c, removeCount, _c, 0, remain);
-            Array.Copy(_v, removeCount, _v, 0, remain);
-            Array.Copy(_sym, removeCount, _sym, 0, remain);
+            RingPopFront(step.Removed.Count);
+
+            for (int i = 0; i < step.Added.Count; i++)
+            {
+                var candle = step.Added[i];
+                RingPushBack(candle.Ts, candle.O, candle.H, candle.L, candle.C, candle.V, candle.Sym);
+            }
         }
 
-        // Append des nouvelles candles à droite
-        int write = remain;
-        for (int i = 0; i < addCount && write < WindowCount; i++, write++)
-        {
-            var candle = step.Added[i];
-
-            _ts[write] = candle.Ts;
-            _o[write] = candle.O;
-            _h[write] = candle.H;
-            _l[write] = candle.L;
-            _c[write] = candle.C;
-            _v[write] = candle.V;
-            _sym[write] = candle.Sym;
-        }
-
-        _windowLoaded = write;
-        _windowStart += removeCount;
+        _windowLoaded = _ringCount;
+        _windowStart = _ringFirstGlobalIdx;
         _fileCount = _uiCandleIndex?.Count ?? 0;
 
+        if (resetView)
+        {
+            _xInited = false;
+            _yInited = false;
+        }
+
         DebugMessage.Write(
-            $"[CandleChartControl] INCR step current={step.CurrentIdx} next={step.NextCursorIdx} " +
-            $"removed={removeCount} added={addCount} loaded={_windowLoaded} windowStart={_windowStart}");
+            $"[CandleChartControl] step current={step.CurrentIdx} next={step.NextCursorIdx} " +
+            $"loaded={_windowLoaded} head={_ringHead} firstGlobal={_ringFirstGlobalIdx}");
 
         InvalidateVisual();
     }

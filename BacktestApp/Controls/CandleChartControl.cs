@@ -21,6 +21,13 @@ namespace BacktestApp.Controls;
 public sealed partial class CandleChartControl : Control
 {
     // =========================
+    // Ring buffer
+    // =========================
+    private int _ringHead;          // index physique du 1er élément logique
+    private int _ringCount;         // nombre d’éléments valides dans le ring
+    private long _ringFirstGlobalIdx; // index global fichier du 1er élément logique
+
+    // =========================
     // Params rendu
     // =========================
     private const double PriceScale = 1.0;

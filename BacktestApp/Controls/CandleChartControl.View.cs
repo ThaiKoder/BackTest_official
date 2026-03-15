@@ -18,14 +18,12 @@ public sealed partial class CandleChartControl
 
         _secondsPerPixel = (VisibleCount * dt) / Math.Max(1.0, plot.Width);
 
-        // centre sur la dernière bougie chargée
-        double lastT = TsNsToEpochSeconds(_ts[_windowLoaded - 1]);
+        double lastT = TsNsToEpochSeconds(RingTsAtLogical(_windowLoaded - 1));
         _centerTimeSec = lastT - (plot.Width * 0.5) * _secondsPerPixel;
 
         ClampZoomToGapWindow();
         ClampCenterTimeToWindow(plot);
     }
-
 
     private void AutoScaleYFromWindow(Rect plot)
     {
@@ -37,22 +35,22 @@ public sealed partial class CandleChartControl
 
         for (int i = 0; i < _windowLoaded; i++)
         {
-            double low = _l[i] / PriceScale;
-            double high = _h[i] / PriceScale;
+            double low = RingLAtLogical(i) / PriceScale;
+            double high = RingHAtLogical(i) / PriceScale;
             if (low < minP) minP = low;
             if (high > maxP) maxP = high;
         }
 
         if (!double.IsFinite(minP) || !double.IsFinite(maxP) || maxP <= minP)
         {
-            minP = 0; maxP = 1;
+            minP = 0;
+            maxP = 1;
         }
 
         _centerPrice = (minP + maxP) * 0.5;
         _pricePerPixel = ((maxP - minP) * 1.20) / plot.Height;
         if (_pricePerPixel <= 0) _pricePerPixel = 1e-6;
     }
-
 
     // =========================
     // Clamp centre X (anti “centre dans le futur”)
@@ -61,8 +59,8 @@ public sealed partial class CandleChartControl
     {
         if (_windowLoaded <= 0) return;
 
-        double firstT = TsNsToEpochSeconds(_ts[0]);
-        double lastT = TsNsToEpochSeconds(_ts[_windowLoaded - 1]);
+        double firstT = TsNsToEpochSeconds(RingTsAtLogical(0));
+        double lastT = TsNsToEpochSeconds(RingTsAtLogical(_windowLoaded - 1));
 
         double halfSpan = (plot.Width * 0.5) * _secondsPerPixel;
 
@@ -78,7 +76,6 @@ public sealed partial class CandleChartControl
         if (_centerTimeSec < minCenter) _centerTimeSec = minCenter;
         if (_centerTimeSec > maxCenter) _centerTimeSec = maxCenter;
     }
-
 
     // =========================
     // Helpers: X/Y mapping

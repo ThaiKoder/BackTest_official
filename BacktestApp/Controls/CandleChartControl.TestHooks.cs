@@ -71,10 +71,11 @@ public sealed partial class CandleChartControl
     internal IReadOnlyList<long> Test_GetLoadedTimestamps()
     {
         var result = new long[_windowLoaded];
-        Array.Copy(_ts, result, _windowLoaded);
+        for (int i = 0; i < _windowLoaded; i++)
+            result[i] = RingTsAtLogical(i);
+
         return result;
     }
-
     internal int Test_GetWindowLoaded()
         => _windowLoaded;
 
