@@ -11,9 +11,6 @@ public sealed partial class CandleChartControl
     private FileIndex.FileCursorStep? _uiFileStep;
     private CandleIndex.CandleCursorStep? _uiCandleStep;
 
-    private const int UiFileRange = 3;
-    private const int UiCandleRange = 10;
-
     private int RingPhysicalIndex(int logicalIndex)
     {
         return (_ringHead + logicalIndex) % WindowCount;

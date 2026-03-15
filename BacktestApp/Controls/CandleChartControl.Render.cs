@@ -324,7 +324,7 @@ public sealed partial class CandleChartControl
         string rightS = s.Substring(s.Length - 6);
         string rightXS = s.Substring(s.Length - 8);
 
-        DebugMessage.Write($"{step}");
+        //DebugMessage.Write($"{step}");
 
         // zoom très large
         if (step >= 2000000000) return $"{leftL}";
