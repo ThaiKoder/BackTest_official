@@ -1,4 +1,4 @@
-﻿//rendu uniquement
+﻿// rendu uniquement
 
 using Avalonia;
 using Avalonia.Controls;
@@ -6,9 +6,7 @@ using Avalonia.Media;
 using System;
 using System.Globalization;
 
-
 namespace BacktestApp.Controls;
-
 
 public sealed partial class CandleChartControl
 {
@@ -43,9 +41,9 @@ public sealed partial class CandleChartControl
         var plot = GetPlotRect(bounds);
         if (plot.Width <= 0 || plot.Height <= 0) return;
 
-        var BgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
-        var AxisBgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
-        ctx.FillRectangle(BgBrush, bounds);
+        var bgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
+        var axisBgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
+        ctx.FillRectangle(bgBrush, bounds);
 
         if (_windowLoaded <= 0) return;
 
@@ -54,6 +52,7 @@ public sealed partial class CandleChartControl
             InitViewXFromWindow(plot);
             _xInited = true;
         }
+
         if (!_yInited)
         {
             AutoScaleYFromWindow(plot);
@@ -65,7 +64,8 @@ public sealed partial class CandleChartControl
         double visiblePriceRange = plot.Height * _pricePerPixel;
         _visibleMinPrice = _centerPrice - visiblePriceRange / 2.0;
         _visibleMaxPrice = _centerPrice + visiblePriceRange / 2.0;
-        if (_visibleMaxPrice <= _visibleMinPrice) _visibleMaxPrice = _visibleMinPrice + 1e-9;
+        if (_visibleMaxPrice <= _visibleMinPrice)
+            _visibleMaxPrice = _visibleMinPrice + 1e-9;
 
         double bodyW = ComputeBodyWidthWindow();
 
@@ -93,7 +93,7 @@ public sealed partial class CandleChartControl
                 var brush = up ? UpBrush : DownBrush;
 
                 ctx.DrawLine(WickPen, new Point(xCenter, yH), new Point(xCenter, yL));
-                
+
                 double top = Math.Min(yO, yC);
                 double bot = Math.Max(yO, yC);
 
@@ -103,11 +103,15 @@ public sealed partial class CandleChartControl
             }
         }
 
+        // Mise à jour des axes dans des buffers fixes
+        UpdateYAxisTicks(plot);
+        UpdateXAxisTicks(plot);
+
         var leftAxisRect = new Rect(0, 0, plot.Left, bounds.Height);
-        ctx.FillRectangle(AxisBgBrush, leftAxisRect);
+        ctx.FillRectangle(axisBgBrush, leftAxisRect);
 
         var bottomAxisRect = new Rect(0, plot.Bottom, bounds.Width, bounds.Height - plot.Bottom);
-        ctx.FillRectangle(AxisBgBrush, bottomAxisRect);
+        ctx.FillRectangle(axisBgBrush, bottomAxisRect);
 
         ctx.DrawLine(AxisPen, new Point(plot.Left, plot.Top), new Point(plot.Left, plot.Bottom));
         ctx.DrawLine(AxisPen, new Point(plot.Left, plot.Bottom), new Point(plot.Right, plot.Bottom));
@@ -116,38 +120,105 @@ public sealed partial class CandleChartControl
         DrawXAxisSimple(ctx, plot, AxisPen, LabelBrush);
     }
 
-
-    private void DrawYAxisSimple(DrawingContext ctx, Rect plot, Pen AxisPen, IBrush LabelBrush)
+    private int GetXAxisStepSeconds()
     {
-        int ticks = 6;
-        for (int i = 0; i <= ticks; i++)
+        const double MinTickSpacingPx = 90.0;
+
+        for (int i = 0; i < XAxisStepsSec.Length; i++)
+        {
+            double px = XAxisStepsSec[i] / _secondsPerPixel;
+            if (px >= MinTickSpacingPx)
+                return XAxisStepsSec[i];
+        }
+
+        return XAxisStepsSec[XAxisStepsSec.Length - 1];
+    }
+
+    private static double AlignTimeDown(double timeSec, int stepSec)
+    {
+        return Math.Floor(timeSec / stepSec) * stepSec;
+    }
+
+    private void UpdateXAxisTicks(Rect plot)
+    {
+        _xTickCount = 0;
+        _xTickStepSec = GetXAxisStepSeconds();
+
+        double leftTime = ScreenXToWorldTime(plot.Left, plot);
+        double rightTime = ScreenXToWorldTime(plot.Right, plot);
+
+        double t = AlignTimeDown(leftTime, _xTickStepSec);
+
+        while (t <= rightTime + _xTickStepSec && _xTickCount < MaxAxisTicks)
+        {
+            double x = WorldTimeToScreenX(t, plot);
+
+            if (x >= plot.Left && x <= plot.Right)
+            {
+                _xTickTimes[_xTickCount] = t;
+                _xTickPixels[_xTickCount] = x;
+                _xTickCount++;
+            }
+
+            t += _xTickStepSec;
+        }
+    }
+
+    private void UpdateYAxisTicks(Rect plot)
+    {
+        _yTickCount = 0;
+
+        const int ticks = 6;
+        for (int i = 0; i <= ticks && _yTickCount < MaxAxisTicks; i++)
         {
             double tt = i / (double)ticks;
             double y = plot.Bottom - tt * plot.Height;
             double price = YToPrice(y, plot);
 
-            ctx.DrawLine(AxisPen, new Point(plot.Left - 4, y), new Point(plot.Left, y));
-            DrawText(ctx, price.ToString("0.###", CultureInfo.InvariantCulture), 6, y - 8, LabelBrush);
+            _yTickPixels[_yTickCount] = y;
+            _yTickPrices[_yTickCount] = price;
+            _yTickCount++;
         }
     }
 
-
-    private void DrawXAxisSimple(DrawingContext ctx, Rect plot, Pen AxisPen, IBrush LabelBrush)
+    private static string FormatXAxisLabel(double timeSec, int stepSec)
     {
-        int ticks = 6;
-        for (int i = 0; i <= ticks; i++)
+        var dt = DateTimeOffset.FromUnixTimeSeconds((long)timeSec).UtcDateTime;
+
+        if (stepSec < 3600)
+            return dt.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+        if (stepSec < 24 * 3600)
+            return dt.ToString("dd/MM HH:mm", CultureInfo.InvariantCulture);
+
+        return dt.ToString("dd/MM", CultureInfo.InvariantCulture);
+    }
+
+    private void DrawYAxisSimple(DrawingContext ctx, Rect plot, Pen axisPen, IBrush labelBrush)
+    {
+        for (int i = 0; i < _yTickCount; i++)
         {
-            double tt = i / (double)ticks;
-            double x = plot.Left + tt * plot.Width;
+            double y = _yTickPixels[i];
+            double price = _yTickPrices[i];
 
-            double timeSec = ScreenXToWorldTime(x, plot);
-            var dt = DateTimeOffset.FromUnixTimeSeconds((long)timeSec).UtcDateTime;
-
-            ctx.DrawLine(AxisPen, new Point(x, plot.Bottom), new Point(x, plot.Bottom + 4));
-            DrawText(ctx, dt.ToString("HH:mm", CultureInfo.InvariantCulture), x - 22, plot.Bottom + 6, LabelBrush);
+            ctx.DrawLine(axisPen, new Point(plot.Left - 4, y), new Point(plot.Left, y));
+            DrawText(ctx, price.ToString("0.###", CultureInfo.InvariantCulture), 6, y - 8, labelBrush);
         }
     }
 
+    private void DrawXAxisSimple(DrawingContext ctx, Rect plot, Pen axisPen, IBrush labelBrush)
+    {
+        for (int i = 0; i < _xTickCount; i++)
+        {
+            double x = _xTickPixels[i];
+            double timeSec = _xTickTimes[i];
+
+            ctx.DrawLine(axisPen, new Point(x, plot.Bottom), new Point(x, plot.Bottom + 4));
+
+            string label = FormatXAxisLabel(timeSec, _xTickStepSec);
+            DrawText(ctx, label, x - 22, plot.Bottom + 6, labelBrush);
+        }
+    }
 
     private static void DrawText(DrawingContext ctx, string text, double x, double y, IBrush brush)
     {
@@ -161,7 +232,6 @@ public sealed partial class CandleChartControl
 
         ctx.DrawText(ft, new Point(x, y));
     }
-
 
     private static Rect GetPlotRect(Rect bounds)
     {

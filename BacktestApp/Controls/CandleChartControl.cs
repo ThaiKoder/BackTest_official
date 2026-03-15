@@ -28,6 +28,32 @@ public sealed partial class CandleChartControl : Control
     private long _ringFirstGlobalIdx; // index global fichier du 1er élément logique
 
     // =========================
+    // Axis buffers (recyclage fixe)
+    // =========================
+    private const int MaxAxisTicks = 32;
+
+    private readonly double[] _xTickTimes = new double[MaxAxisTicks];
+    private readonly double[] _xTickPixels = new double[MaxAxisTicks];
+    private int _xTickCount;
+    private int _xTickStepSec;
+
+    private readonly double[] _yTickPrices = new double[MaxAxisTicks];
+    private readonly double[] _yTickPixels = new double[MaxAxisTicks];
+    private int _yTickCount;
+
+    // Pas dynamiques de l'axe X selon le zoom
+    private static readonly int[] XAxisStepsSec =
+    {
+    60,          // 1m
+    5 * 60,      // 5m
+    15 * 60,     // 15m
+    30 * 60,     // 30m
+    60 * 60,     // 1h
+    4 * 60 * 60, // 4h
+    24 * 60 * 60 // 1d
+};
+
+    // =========================
     // Params rendu
     // =========================
     private const double PriceScale = 1.0;
