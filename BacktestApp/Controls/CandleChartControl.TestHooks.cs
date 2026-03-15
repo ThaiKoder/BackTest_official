@@ -108,7 +108,7 @@ public sealed partial class CandleChartControl
         if (_windowLoaded <= 0) return;
 
         int mid = _windowLoaded / 2;
-        _centerTimeSec = TsNsToEpochSeconds(_ts[mid]);
+        _centerTimeSec = TsNsToEpochSeconds(GetTs(mid));
     }
 
 

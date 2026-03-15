@@ -116,19 +116,20 @@ public sealed partial class CandleChartControl
     {
         if (_windowLoaded < 2) return 60.0;
 
-        long t0 = _ts[0];
+        long t0 = GetTs(0);
         for (int i = 1; i < _windowLoaded; i++)
         {
-            if (_ts[i] != t0)
+            long ti = GetTs(i);
+            if (ti != t0)
             {
                 double a = TsNsToEpochSeconds(t0);
-                double b = TsNsToEpochSeconds(_ts[i]);
+                double b = TsNsToEpochSeconds(ti);
                 return Math.Max(1e-6, Math.Abs(b - a));
             }
         }
+
         return 60.0;
     }
-
 
     private void ClampZoomToGapWindow()
     {

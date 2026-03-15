@@ -198,7 +198,7 @@ public sealed partial class CandleChartControl
             {
                 // navigation: centre cohérent avec la nouvelle fenêtre
                 if (_windowLoaded > 0)
-                    _centerTimeSec = TsNsToEpochSeconds(_ts[_windowLoaded / 2]);
+                    _centerTimeSec = TsNsToEpochSeconds(GetTs(_windowLoaded / 2));
             }
         }
         finally
@@ -218,7 +218,7 @@ public sealed partial class CandleChartControl
         // Place le centre exactement sur l'index global désiré (si dans la fenêtre)
         int local = (int)(desiredCenterGlobal - _windowStart);
         local = ClampInt(local, 0, _windowLoaded - 1);
-        _centerTimeSec = TsNsToEpochSeconds(_ts[local]);
+        _centerTimeSec = TsNsToEpochSeconds(GetTs(local));
 
         var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
         if (plot.Width > 0) ClampCenterTimeToWindow(plot);
@@ -388,7 +388,7 @@ public sealed partial class CandleChartControl
         {
             Debug.WriteLine($"[525] centerTimeSec={_centerTimeSec}");
             Debug.WriteLine($"[525] centerLocal={centerLocal} windowLoaded={_windowLoaded} windowStart={_windowStart}");
-            Debug.WriteLine($"[525] ts0={_ts[0]} tsLast={_ts[_windowLoaded - 1]}");
+            Debug.WriteLine($"[525] ts0={GetTs(0)} tsLast={GetTs(_windowLoaded - 1)}");
         }
     }
 

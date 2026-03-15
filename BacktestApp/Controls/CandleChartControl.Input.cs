@@ -153,7 +153,7 @@ public sealed partial class CandleChartControl
         if (i < 0) return -1;
 
         // 3) check "sur la bougie" en X (hit-test simple)
-        double tSec = TsNsToEpochSeconds(_ts[i]);
+        double tSec = TsNsToEpochSeconds(GetTs(i));
         double xCenter = WorldTimeToScreenX(tSec, plot);
 
         double bodyW = ComputeBodyWidthWindow();
@@ -177,15 +177,15 @@ public sealed partial class CandleChartControl
 
         if (newHoverIndex < 0) return;
 
-        long ts = _ts[newHoverIndex];
-        double o = _o[newHoverIndex] / PriceScale;
-        double h = _h[newHoverIndex] / PriceScale;
-        double l = _l[newHoverIndex] / PriceScale;
-        double c = _c[newHoverIndex] / PriceScale;
-        uint v = _v[newHoverIndex];
+        long ts = GetTs(newHoverIndex);
+        double o = GetO(newHoverIndex) / PriceScale;
+        double h = GetH(newHoverIndex) / PriceScale;
+        double l = GetL(newHoverIndex) / PriceScale;
+        double c = GetC(newHoverIndex) / PriceScale;
+        uint v = GetV(newHoverIndex);
 
         // Symbol: 1 byte (ton format actuel)
-        byte sym = _sym[newHoverIndex * MmapCandleFile.SymbolSize + 0];
+        byte sym = GetSym(newHoverIndex);
 
         DebugMessage.Write($"[HOVER] i={newHoverIndex} " +
             $"date(UTC)={FormatTsUtc(ts)} " +

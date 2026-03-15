@@ -73,16 +73,16 @@ public sealed partial class CandleChartControl
         {
             for (int i = 0; i < _windowLoaded; i++)
             {
-                double tSec = TsNsToEpochSeconds(_ts[i]);
+                double tSec = TsNsToEpochSeconds(GetTs(i));
                 double xCenter = WorldTimeToScreenX(tSec, plot);
 
                 if (xCenter < plot.Left - 100 || xCenter > plot.Right + 100)
                     continue;
 
-                double o = _o[i] / PriceScale;
-                double h = _h[i] / PriceScale;
-                double l = _l[i] / PriceScale;
-                double cl = _c[i] / PriceScale;
+                double o = GetO(i) / PriceScale;
+                double h = GetH(i) / PriceScale;
+                double l = GetL(i) / PriceScale;
+                double cl = GetC(i) / PriceScale;
 
                 double yH = PriceToY(h, plot);
                 double yL = PriceToY(l, plot);
@@ -93,7 +93,7 @@ public sealed partial class CandleChartControl
                 var brush = up ? UpBrush : DownBrush;
 
                 ctx.DrawLine(WickPen, new Point(xCenter, yH), new Point(xCenter, yL));
-
+                
                 double top = Math.Min(yO, yC);
                 double bot = Math.Max(yO, yC);
 
