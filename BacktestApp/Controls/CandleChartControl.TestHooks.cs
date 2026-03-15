@@ -3,6 +3,7 @@ using Avalonia.Media.TextFormatting;
 using System.Collections.Generic;
 using System;
 using System.IO;
+using DatasetTool;
 
 namespace BacktestApp.Controls;
 
@@ -44,8 +45,19 @@ public sealed partial class CandleChartControl
     }
 
 
+
+    // =========================
+    // Hooks mode FilesNext/CandlesNext (UI path)
+    // =========================
+
     internal void Test_InitializeFilesAndCandlesMode()
-    => InitializeFilesAndCandlesMode();
+        => InitializeFilesAndCandlesMode();
+
+    internal int Test_GetUiFileCurrentIdx()
+        => _uiFileStep?.CurrentIdx ?? -1;
+
+    internal int Test_GetUiFileNextCursorIdx()
+        => _uiFileStep?.NextCursorIdx ?? -1;
 
     internal int Test_GetUiCandleCurrentIdx()
         => _uiCandleStep?.CurrentIdx ?? -1;
@@ -53,16 +65,32 @@ public sealed partial class CandleChartControl
     internal int Test_GetUiCandleNextCursorIdx()
         => _uiCandleStep?.NextCursorIdx ?? -1;
 
+    internal long Test_GetUiFileCount()
+        => _uiCandleIndex?.Count ?? 0;
+
     internal IReadOnlyList<long> Test_GetLoadedTimestamps()
     {
         var result = new long[_windowLoaded];
-        for (int i = 0; i < _windowLoaded; i++)
-            result[i] = _ts[i];
+        Array.Copy(_ts, result, _windowLoaded);
         return result;
     }
 
+    internal int Test_GetWindowLoaded()
+        => _windowLoaded;
+
+    internal long Test_GetWindowStart()
+        => _windowStart;
+
     internal bool Test_AdvanceCandlesNext()
         => AdvanceCandlesNext();
+
+
+
+
+
+
+
+
 
 
     // Met le centre exactement au milieu de la fenêtre actuelle
@@ -160,5 +188,15 @@ public sealed partial class CandleChartControl
         _testCandleIndex = Test_candleReader();
         _testCandleIndex.Load(path, 3);
     }
+
+
+
+
+
+
+
+
+
+
 
 }
