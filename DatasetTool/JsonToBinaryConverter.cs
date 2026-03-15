@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-using System.Threading.Tasks;
-
 
 namespace DatasetTool
 {
@@ -18,46 +17,13 @@ namespace DatasetTool
         public readonly uint V;
         public readonly byte SymbolCode;
 
-
         public Candle1m(long tsNs, long o, long h, long l, long c, uint v, byte symbolCode)
             => (TsNs, O, H, L, C, V, SymbolCode) = (tsNs, o, h, l, c, v, symbolCode);
     }
 
-    //public readonly record struct Candle1m
-    //{
-    //    public long TsNs { get; }
-    //    public long O { get; }
-    //    public long H { get; }
-    //    public long L { get; }
-    //    public long C { get; }
-    //    public uint V { get; }
-    //    public byte Symbol { get; }
-
-    //    public Candle1m(long tsNs, long o, long h, long l, long c, uint v, byte symbol)
-    //    {
-    //        //if (tsNs < 0) throw new JsonException("Missing required field: hd.ts_event");
-    //        //if (o < 0) throw new JsonException("Missing required field: open");
-    //        //if (h < 0) throw new JsonException("Missing required field: high");
-    //        //if (l <= 0) throw new JsonException("Missing required field: low");
-    //        //if (c <= 0) throw new JsonException("Missing required field: close");
-    //        //if (v <= 0) throw new JsonException("Missing required field: volume");
-
-    //        TsNs = tsNs;
-    //        O = o;
-    //        H = h;
-    //        L = l;
-    //        C = c;
-    //        V = v;
-    //        Symbol = symbol;
-    //    }
-    //}
-
-
     public static class JsonToBinaryConverter
     {
-
-        private static long _lastTsNs = -1;
-        private static readonly string[] QuarterContracts = { "", "NQH", "NQM", "NQU", "NQZ" };
+        public const int CandleRecordSize = 45;
 
         internal static Candle1m ReadCandle(ref Utf8JsonReader reader)
         {
@@ -75,7 +41,7 @@ namespace DatasetTool
 
                 if (reader.ValueTextEquals("hd"))
                 {
-                    reader.Read(); // doit être StartObject
+                    reader.Read();
                     if (reader.TokenType != JsonTokenType.StartObject)
                         throw new FormatException("hd doit être un objet");
 
@@ -89,13 +55,12 @@ namespace DatasetTool
 
                         if (reader.ValueTextEquals("ts_event"))
                         {
-                            reader.Read(); // Value
+                            reader.Read();
                             string iso = reader.GetString()!;
                             tsNs = ParseIsoToEpochNs(iso);
                         }
                         else
                         {
-                            // IMPORTANT: sauter la VALEUR de la propriété
                             reader.Read();
                             reader.Skip();
                         }
@@ -133,7 +98,6 @@ namespace DatasetTool
                 }
                 else
                 {
-                    // IMPORTANT: sauter la VALEUR de la propriété
                     reader.Read();
                     reader.Skip();
                 }
@@ -142,128 +106,143 @@ namespace DatasetTool
             return new Candle1m(tsNs, o, h, l, c, v, s);
         }
 
-        private static void WriteFixedString10(BinaryWriter bw, string symbol)
-        {
-            Span<byte> tmp = stackalloc byte[10];
-            tmp.Clear();
-
-            // on encode en ASCII (idéal pour symbol type "BTCUSDT", etc.)
-            // si tu as des caractères non ASCII, remplace par Encoding.UTF8 (mais longueur variable)
-            int n = Encoding.ASCII.GetBytes(symbol.AsSpan(), tmp);
-            // si symbol > 10, n sera 10 (troncature)
-            bw.Write(tmp);
-        }
-
-
-
         public static byte GetQuarter(long dateTicks)
         {
             DateTime date = DateTime.UnixEpoch.AddTicks(dateTicks / 100);
             int year = date.Year;
 
-            // Fonction pour trouver le 3e vendredi d'un mois
             DateTime ThirdFriday(int y, int month)
             {
-
-
-
-                //Recuperer le jour du premier mois
                 DateTime firstDay = new DateTime(y, month, 1);
-
-                //Ajouter le nombre de jours pour arriver au premier vendredi
                 int daysOffset = (int)firstDay.DayOfWeek % 5;
-                DateTime firstFriday;
-
-                //Si le premier jour est un vendredi, on reste dessus, sinon on avance jusqu'au vendredi suivant
-                firstFriday = (daysOffset != 0 ? firstDay.AddDays(5 - daysOffset) : firstDay);
-
-                //Faire * 3 pour arriver au 3e vendredi
+                DateTime firstFriday = (daysOffset != 0 ? firstDay.AddDays(5 - daysOffset) : firstDay);
                 DateTime thirdFriday = firstFriday.AddDays(14);
-
-                //-1 pour arriver au jour avant le 3e vendredi soit changement jeudi
                 return thirdFriday.AddDays(-1);
             }
 
-            // Vendredi avant le 3e vendredi
-            DateTime Q1Date = ThirdFriday(year, 3);
-            DateTime Q2Date = ThirdFriday(year, 6);
-            DateTime Q3Date = ThirdFriday(year, 9);
-            DateTime Q4Date = ThirdFriday(year, 12);
+            DateTime q1Date = ThirdFriday(year, 3);
+            DateTime q2Date = ThirdFriday(year, 6);
+            DateTime q3Date = ThirdFriday(year, 9);
+            DateTime q4Date = ThirdFriday(year, 12);
 
-            if (date <= Q1Date)
-                return 1;
-            if (date <= Q2Date)
-                return 2;
-            if (date <= Q3Date)
-                return 3;
-            if (date <= Q4Date)
-                return 4;
+            if (date <= q1Date) return 1;
+            if (date <= q2Date) return 2;
+            if (date <= q3Date) return 3;
+            if (date <= q4Date) return 4;
             return 1;
         }
 
-
-
-
         public static void ConvertJson(string jsonPath, string binPath, CancellationToken ct = default)
         {
+            string tmpPath = binPath + ".tmp";
             long lineNo = 0;
+            var seenTsNs = new HashSet<long>();
 
-            using var fs = new FileStream(
-                jsonPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 1 << 20, useAsync: false);
+            if (File.Exists(tmpPath))
+                File.Delete(tmpPath);
 
-            using var outFs = new FileStream(
-                binPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 1 << 20, useAsync: false);
-
-            using var bw = new BinaryWriter(outFs, Encoding.UTF8, leaveOpen: false);
-
-            byte[] buffer = new byte[1 << 20];
-            byte[] carry = new byte[1 << 20];
-            int carryLen = 0;
-
-            int bytesRead;
-            while ((bytesRead = fs.Read(buffer, 0, buffer.Length)) > 0)
+            try
             {
-                ct.ThrowIfCancellationRequested();
+                using var fs = new FileStream(
+                    jsonPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                    bufferSize: 1 << 20, useAsync: false);
 
-                int start = 0;
-                for (int i = 0; i < bytesRead; i++)
+                using var outFs = new FileStream(
+                    tmpPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                    bufferSize: 1 << 20, useAsync: false);
+
+                using var bw = new BinaryWriter(outFs, Encoding.UTF8, leaveOpen: true);
+
+                byte[] buffer = new byte[1 << 20];
+                byte[] carry = new byte[1 << 20];
+                int carryLen = 0;
+
+                int bytesRead;
+                while ((bytesRead = fs.Read(buffer, 0, buffer.Length)) > 0)
                 {
-                    if (buffer[i] != (byte)'\n') continue;
+                    ct.ThrowIfCancellationRequested();
 
-                    // traiter une ligne
-                    ProcessLine(buffer, start, i - start, ref carry, ref carryLen, ref lineNo, jsonPath, bw);
+                    int start = 0;
+                    for (int i = 0; i < bytesRead; i++)
+                    {
+                        if (buffer[i] != (byte)'\n')
+                            continue;
 
-                    start = i + 1;
+                        ProcessLine(
+                            buffer, start, i - start,
+                            ref carry, ref carryLen,
+                            ref lineNo, jsonPath, bw, seenTsNs);
+
+                        start = i + 1;
+                    }
+
+                    int remaining = bytesRead - start;
+                    if (remaining > 0)
+                    {
+                        EnsureCapacity(ref carry, carryLen + remaining);
+                        Buffer.BlockCopy(buffer, start, carry, carryLen, remaining);
+                        carryLen += remaining;
+                    }
                 }
 
-                // reste -> carry
-                int remaining = bytesRead - start;
-                if (remaining > 0)
+                if (carryLen > 0)
                 {
-                    EnsureCapacity(ref carry, carryLen + remaining);
-                    Buffer.BlockCopy(buffer, start, carry, carryLen, remaining);
-                    carryLen += remaining;
+                    ProcessFinalCarryLine(
+                        carry, carryLen,
+                        ref lineNo, jsonPath, bw, seenTsNs);
                 }
+
+                bw.Flush();
+                outFs.Flush(true);
+            }
+            catch
+            {
+                try
+                {
+                    if (File.Exists(tmpPath))
+                        File.Delete(tmpPath);
+                }
+                catch
+                {
+                }
+
+                throw;
             }
 
-            // dernière ligne
-            if (carryLen > 0)
-                ProcessFinalCarryLine(carry, carryLen, ref lineNo, jsonPath, bw);
+            long tmpLen = new FileInfo(tmpPath).Length;
+            if (tmpLen % CandleRecordSize != 0)
+            {
+                try
+                {
+                    File.Delete(tmpPath);
+                }
+                catch
+                {
+                }
 
-            // bw.Dispose() flush automatiquement
+                throw new IOException(
+                    $"Fichier binaire invalide: {Path.GetFileName(tmpPath)}, taille={tmpLen}, reste={tmpLen % CandleRecordSize}");
+            }
+
+            if (File.Exists(binPath))
+                File.Delete(binPath);
+
+            File.Move(tmpPath, binPath);
         }
 
-        // ✅ SYNC
         private static void ProcessLine(
             byte[] buffer, int start, int segLen,
             ref byte[] carry, ref int carryLen,
             ref long lineNo, string jsonPath,
-            BinaryWriter bw)
+            BinaryWriter bw,
+            HashSet<long> seenTsNs)
         {
             int totalLen = carryLen + segLen;
-            if (totalLen <= 0) { carryLen = 0; return; }
+            if (totalLen <= 0)
+            {
+                carryLen = 0;
+                return;
+            }
 
             ReadOnlySpan<byte> lineSpan;
             byte[]? tmp = null;
@@ -291,31 +270,7 @@ namespace DatasetTool
                 try
                 {
                     var candle = ReadCandleFromJsonLine(lineSpan);
-
-                    byte quarter = GetQuarter(candle.TsNs);
-                    string contractName = QuarterContracts[quarter]; // si tu en as besoin
-
-                    //Console.WriteLine($"{quarter}");
-                    //Console.WriteLine($"Ligne {lineNo}: Ts={candle.TsNs} O={candle.O} H={candle.H} L={candle.L} C={candle.C} V={candle.V} Sym={candle.SymbolCode} Quarter={quarter}");
-
-                    if (quarter == candle.SymbolCode && _lastTsNs != candle.TsNs)
-                    {
-                        if (candle.TsNs == 1275865560000000000)
-                        {
-                            Debug.WriteLine($"Debug: Ts={candle.TsNs} O={candle.O} H={candle.H} L={candle.L} C={candle.C} V={candle.V} Sym={candle.SymbolCode} Quarter={quarter}");
-                        }
-
-                        bw.Write(candle.TsNs);
-                        bw.Write(candle.O);
-                        bw.Write(candle.H);
-                        bw.Write(candle.L);
-                        bw.Write(candle.C);
-                        bw.Write(candle.V);
-                        bw.Write(candle.SymbolCode);
-                        _lastTsNs = candle.TsNs;
-
-                    }
-
+                    WriteCandleIfUnique(bw, candle, seenTsNs);
                 }
                 catch (Exception ex)
                 {
@@ -331,24 +286,22 @@ namespace DatasetTool
         private static void ProcessFinalCarryLine(
             byte[] carry, int carryLen,
             ref long lineNo, string jsonPath,
-            BinaryWriter bw)
+            BinaryWriter bw,
+            HashSet<long> seenTsNs)
         {
             ReadOnlySpan<byte> lineSpan = carry.AsSpan(0, carryLen);
-            if (!lineSpan.IsEmpty && lineSpan[^1] == (byte)'\r') lineSpan = lineSpan[..^1];
-            if (lineSpan.IsEmpty) return;
+
+            if (!lineSpan.IsEmpty && lineSpan[^1] == (byte)'\r')
+                lineSpan = lineSpan[..^1];
+
+            if (lineSpan.IsEmpty)
+                return;
 
             lineNo++;
             try
             {
                 var candle = ReadCandleFromJsonLine(lineSpan);
-
-                bw.Write(candle.TsNs);
-                bw.Write(candle.O);
-                bw.Write(candle.H);
-                bw.Write(candle.L);
-                bw.Write(candle.C);
-                bw.Write(candle.V);
-                bw.Write(candle.SymbolCode);
+                WriteCandleIfUnique(bw, candle, seenTsNs);
             }
             catch (Exception ex)
             {
@@ -357,22 +310,42 @@ namespace DatasetTool
             }
         }
 
+        private static void WriteCandleIfUnique(BinaryWriter bw, Candle1m candle, HashSet<long> seenTsNs)
+        {
+            byte quarter = GetQuarter(candle.TsNs);
+
+            if (quarter != candle.SymbolCode)
+                return;
+
+            if (!seenTsNs.Add(candle.TsNs))
+                return;
+
+            bw.Write(candle.TsNs);
+            bw.Write(candle.O);
+            bw.Write(candle.H);
+            bw.Write(candle.L);
+            bw.Write(candle.C);
+            bw.Write(candle.V);
+            bw.Write(candle.SymbolCode);
+        }
+
         private static void EnsureCapacity(ref byte[] arr, int needed)
         {
-            if (arr.Length >= needed) return;
+            if (arr.Length >= needed)
+                return;
+
             int newSize = arr.Length;
-            while (newSize < needed) newSize <<= 1;
+            while (newSize < needed)
+                newSize <<= 1;
+
             Array.Resize(ref arr, newSize);
         }
 
-
-        // Ici on utilise Utf8JsonReader "en entier" sur UNE ligne JSON.
         private static Candle1m ReadCandleFromJsonLine(ReadOnlySpan<byte> jsonLineUtf8)
         {
             var readerState = new JsonReaderState();
             var reader = new Utf8JsonReader(jsonLineUtf8, isFinalBlock: true, readerState);
 
-            // Avancer jusqu'au StartObject de la ligne
             while (reader.Read() && reader.TokenType != JsonTokenType.StartObject) { }
 
             if (reader.TokenType != JsonTokenType.StartObject)
@@ -381,14 +354,6 @@ namespace DatasetTool
             return ReadCandle(ref reader);
         }
 
-        internal static string GetStringValue(ref Utf8JsonReader reader)
-        {
-            if (reader.TokenType != JsonTokenType.String)
-                throw new InvalidOperationException(
-                    $"Token attendu String, reçu {reader.TokenType}");
-
-            return reader.GetString()!;
-        }
         internal static long ParseLongMaybeString(ref Utf8JsonReader reader)
         {
             return reader.TokenType switch
@@ -399,50 +364,20 @@ namespace DatasetTool
             };
         }
 
-        internal static ulong ParseULongMaybeString(ref Utf8JsonReader reader)
-        {
-            if (reader.TokenType == JsonTokenType.Number)
-            {
-                if (reader.TryGetUInt64(out var n))
-                    return n;
-
-                throw new FormatException("UInt64 invalide (Number)");
-            }
-
-            if (reader.TokenType == JsonTokenType.String)
-            {
-                var s = reader.GetString();
-
-                if (ulong.TryParse(
-                    s,
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out var v))
-                    return v;
-
-                throw new FormatException($"UInt64 invalide (String): '{s}'");
-            }
-
-            throw new FormatException($"UInt64 invalide (TokenType): {reader.TokenType}");
-        }
-
-
         internal static uint ParseUInt32MaybeString(ref Utf8JsonReader reader)
         {
             return reader.TokenType switch
             {
                 JsonTokenType.Number when reader.TryGetUInt32(out var n) => n,
-
                 JsonTokenType.String when uint.TryParse(
                     reader.GetString(),
                     NumberStyles.Integer,
                     CultureInfo.InvariantCulture,
                     out var s) => s,
-
                 _ => throw new FormatException($"UInt32 invalide: {reader.TokenType}")
             };
         }
-        // "2010-06-06T22:00:00.000000000Z" -> epoch ns
+
         internal static long ParseIsoToEpochNs(string isoZ)
         {
             int dot = isoZ.IndexOf('.');
@@ -457,7 +392,8 @@ namespace DatasetTool
             }
 
             int z = isoZ.IndexOf('Z', dot);
-            if (z < 0) z = isoZ.Length;
+            if (z < 0)
+                z = isoZ.Length;
 
             string basePart = isoZ[..dot] + "Z";
             string fracPart = isoZ[(dot + 1)..z];
@@ -469,71 +405,19 @@ namespace DatasetTool
 
             long baseNs = dto2.ToUnixTimeMilliseconds() * 1_000_000L;
 
-            // normaliser fraction à 9 digits (ns)
             if (fracPart.Length > 9)
                 fracPart = fracPart[..9];
 
             fracPart = fracPart.PadRight(9, '0');
 
             long extraNs = long.Parse(fracPart, CultureInfo.InvariantCulture);
-
             return baseNs + extraNs;
         }
-        internal static ulong ParseTimestampNsMaybeString(ref Utf8JsonReader reader)
-        {
-            if (reader.TokenType == JsonTokenType.Number && reader.TryGetUInt64(out var n))
-                return n;
-
-            if (reader.TokenType == JsonTokenType.String)
-            {
-                var s = reader.GetString();
-
-                if (string.IsNullOrWhiteSpace(s))
-                    throw new FormatException("Timestamp vide");
-
-                // 1) epoch en string
-                if (ulong.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var epoch))
-                    return epoch;
-
-                // 2) ISO 8601 en string -> epoch ns
-                try
-                {
-                    return (ulong)ParseIsoToEpochNs(s);
-                }
-                catch (Exception ex)
-                {
-                    throw new FormatException($"Timestamp string invalide: '{s}'", ex);
-                }
-            }
-
-            throw new FormatException($"Timestamp invalide: {reader.TokenType}");
-        }
-
-        //internal static byte GetSymbolValue(ref Utf8JsonReader reader)
-        //{
-        //    if (reader.TokenType != JsonTokenType.String)
-        //        throw new InvalidOperationException(
-        //            $"Token attendu String, reçu {reader.TokenType}");
-
-
-        //    //FAST => Correct later for "NQH-NQZ" or "NQZ-NQH"
-        //    //if (reader.GetString().Trim().StartsWith(contractName, StringComparison.OrdinalIgnoreCase))
-        //    if (reader.GetString().Trim().StartsWith("NQH", StringComparison.OrdinalIgnoreCase)) return 1;
-        //    //if (reader.ValueTextEquals("NQM")) return 2;
-        //    //if (reader.ValueTextEquals("NQU")) return 3;
-        //    //if (reader.ValueTextEquals("NQZ")) return 4;
-
-        //    return 5;
-
-        //    throw new InvalidOperationException("Valeur inconnue");
-        //}
-
 
         internal static byte GetSymbolValue(ref Utf8JsonReader reader)
         {
             if (reader.TokenType != JsonTokenType.String)
-                throw new InvalidOperationException(
-                    $"Token attendu String, reçu {reader.TokenType}");
+                throw new InvalidOperationException($"Token attendu String, reçu {reader.TokenType}");
 
             var value = reader.GetString();
 
@@ -542,19 +426,12 @@ namespace DatasetTool
 
             value = value.Trim();
 
-            if (value.StartsWith("NQH", StringComparison.OrdinalIgnoreCase))
-                return 1;
+            if (value.StartsWith("NQH", StringComparison.OrdinalIgnoreCase)) return 1;
+            if (value.StartsWith("NQM", StringComparison.OrdinalIgnoreCase)) return 2;
+            if (value.StartsWith("NQU", StringComparison.OrdinalIgnoreCase)) return 3;
+            if (value.StartsWith("NQZ", StringComparison.OrdinalIgnoreCase)) return 4;
 
-            if (value.StartsWith("NQM", StringComparison.OrdinalIgnoreCase))
-                return 2;
-
-            if (value.StartsWith("NQU", StringComparison.OrdinalIgnoreCase))
-                return 3;
-
-            if (value.StartsWith("NQZ", StringComparison.OrdinalIgnoreCase))
-                return 4;
-
-            return 5; // valeur par défaut
+            return 5;
         }
     }
 }

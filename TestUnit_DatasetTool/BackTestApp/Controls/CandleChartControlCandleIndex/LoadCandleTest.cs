@@ -124,7 +124,7 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
             int totalRead = 0;
             long lastTs = -1;
 
-            while (candleStep.NextCursorIdx != -1)
+            while (candleStep.CurrentIdx != -1)
             {
                 foreach (var candle in candleStep.Added)
                 {
@@ -141,35 +141,35 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlCandleIndex
                     long sec = candle.Ts / 1_000_000_000L;
                     var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
 
-                    //    Debug.WriteLine(
-                    //        $"[CANDLE] idx={candle.Idx} " +
-                    //        $"ts={dt:yyyy-MM-dd HH:mm:ss} " +
-                    //        $"o={candle.O} " +
-                    //        $"h={candle.H} " +
-                    //        $"l={candle.L} " +
-                    //        $"c={candle.C} " +
-                    //        $"v={candle.V} " +
-                    //        $"sym={symbol}");
+                    Debug.WriteLine(
+                        $"[CANDLE] idx={candle.Idx} " +
+                        $"ts={dt:yyyy-MM-dd HH:mm:ss} " +
+                        $"o={candle.O} " +
+                        $"h={candle.H} " +
+                        $"l={candle.L} " +
+                        $"c={candle.C} " +
+                        $"v={candle.V} " +
+                        $"sym={symbol}");
 
                     Assert.True(lastTs != candle.Ts, $"Dupplication candle {dt}");
 
 
-                    if (candle.V == 37)
-                    {
-                        Debug.WriteLine("");
-                    }
-                    if (lastTs != candle.Ts)
-                    {
-                        lastTs = candle.Ts;
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[ERROR] Timestamp dupliqué détecté: ts={candle.Ts} (dt={dt:yyyy-MM-dd HH:mm:ss}) " +
-                            $"(fileIdx={currentFileIdx}, candleIdx={candle.Idx})");
-                    }
-
 
                     totalRead++;
+                    if(totalRead == 6212)
+                    {
+
+                        Debug.WriteLine(
+                            $"[CANDLE] idx={candle.Idx} " +
+                            $"ts={dt:yyyy-MM-dd HH:mm:ss} " +
+                            $"o={candle.O} " +
+                            $"h={candle.H} " +
+                            $"l={candle.L} " +
+                            $"c={candle.C} " +
+                            $"v={candle.V} " +
+                            $"sym={symbol}");
+
+                    }
                 }
 
         

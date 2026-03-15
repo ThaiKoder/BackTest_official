@@ -328,7 +328,6 @@ internal static class Program
         Console.WriteLine($"Trouvé {jsonFiles.Count} fichier(s) .json dans {Path.GetFullPath(inputDir)}");
         Console.WriteLine($"Parallelisme: {MaxParallel}");
 
-        // Bin à côté de inputDir (…/inputDir/../bin)
         var binDir = Path.GetFullPath(Path.Combine(inputDir, "..", "bin"));
         Directory.CreateDirectory(binDir);
 
@@ -345,21 +344,32 @@ internal static class Program
 
         await Parallel.ForEachAsync(
             jsonFiles,
-            new ParallelOptions { MaxDegreeOfParallelism = MaxParallel, CancellationToken = cts.Token },
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = MaxParallel,
+                CancellationToken = cts.Token
+            },
             async (jsonPath, ct) =>
             {
-                var binPath = Path.Combine(
+                string binPath = Path.Combine(
                     binDir,
-                    Path.GetFileNameWithoutExtension(jsonPath) + ".bin"
-                );
+                    Path.GetFileNameWithoutExtension(jsonPath) + ".bin");
 
                 try
                 {
-                    // Skip si déjà converti
+                    // Si le .bin existe déjà, on vérifie qu'il est valide.
                     if (File.Exists(binPath))
                     {
-                        Interlocked.Increment(ref skipped);
-                        return;
+                        long len = new FileInfo(binPath).Length;
+
+                        if (len > 0 && len % JsonToBinaryConverter.CandleRecordSize == 0)
+                        {
+                            Interlocked.Increment(ref skipped);
+                            return;
+                        }
+
+                        // .bin invalide/corrompu -> on le supprime pour le reconstruire
+                        File.Delete(binPath);
                     }
 
                     var fi = new FileInfo(jsonPath);
@@ -370,26 +380,37 @@ internal static class Program
                     }
 
                     var sw = Stopwatch.StartNew();
-                    JsonToBinaryConverter.ConvertJson(jsonPath, binPath, ct);
-                    sw.Stop();
 
+                    JsonToBinaryConverter.ConvertJson(jsonPath, binPath, ct);
+
+                    sw.Stop();
                     Interlocked.Increment(ref ok);
 
-                    // ⚠️ Console.WriteLine en parallèle peut ralentir; si besoin, log tous les N
-                    // Console.WriteLine($"OK  {Path.GetFileName(jsonPath)} -> {Path.GetFileName(binPath)}  ({sw.Elapsed.TotalSeconds:F1}s)");
                     if (ok % 50 == 0)
                         Console.WriteLine($"Progress OK={ok} | Skip={skipped} | Fail={failed}");
                 }
                 catch (OperationCanceledException)
                 {
-                    // Annulation => ne pas compter comme failed
                 }
                 catch (Exception ex)
                 {
                     Interlocked.Increment(ref failed);
-                    Console.Error.WriteLine($"FAIL {jsonPath}\n     {ex.GetType().Name}: {ex.Message}");
-                    try { if (File.Exists(binPath)) File.Delete(binPath); } catch { /* ignore */ }
+
+                    Console.Error.WriteLine(
+                        $"FAIL {jsonPath}\n" +
+                        $"     {ex.GetType().Name}: {ex.Message}");
+
+                    try
+                    {
+                        if (File.Exists(binPath))
+                            File.Delete(binPath);
+                    }
+                    catch
+                    {
+                    }
                 }
+
+                await ValueTask.CompletedTask;
             });
 
         swAll.Stop();
