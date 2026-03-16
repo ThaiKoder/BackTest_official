@@ -290,55 +290,107 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
         }
 
 
-
         private sealed record ZoneSnapshot(
-            string Name,
-            DateTime DateUtc,
-            long StartTs,
-            long EndTs,
-            double High,
-            double Low)
+               string Name,
+               DateTime DateUtc,
+               long StartTs,
+               long EndTs,
+               double High,
+               double Low)
         {
             public double Mid => (High + Low) / 2.0;
             public double Range => High - Low;
         }
 
+        private sealed record ReferenceConfig(
+            string Key,
+            string ZoneName);
+
+        private sealed record ConditionContext(
+            IReadOnlyDictionary<string, ZoneSnapshot> Refs,
+            ZoneSnapshot Target);
+
         [Fact]
-        public void LoadNext_Should_Compare_Zones_With_Generic_Nested_Conditions_And_Count_Only_On_Final_Condition()
+        public void LoadNext_Should_Compare_Zones_With_Multiple_Dynamic_References_And_MultiReference_Conditions()
         {
             // ==================================================
             // CONFIG TEST
             // ==================================================
-            const string referenceZoneName = "Asian";
             const string targetZoneName = "NY AM";
 
-            const bool enableExactExpectedCandleCount = false;   // false = plus rapide
+            const bool enableExactExpectedCandleCount = true;    // false = plus rapide
             const bool enableStrictUniqueTimestampCheck = true;  // false = encore plus rapide
-            const bool enableVerboseDebug = false;
+            const bool enableVerboseDebug = true;
+
+            // ==================================================
+            // REFERENCES DYNAMIQUES
+            // ==================================================
+            // Tu peux mettre 1, 2, 10, 100 références...
+            var references = new List<ReferenceConfig>
+        {
+            new("refAsian", "Asian"),
+            new("refLondon", "London")
+
+            // Exemples si tu as d'autres zones dans ton indicateur :
+            // new("ref4", "Asian"),
+            // new("ref5", "London"),
+            // new("ref6", "NY AM"),
+        };
 
             // ==================================================
             // CONDITIONS IMBRIQUEES
             // ==================================================
-            // entryConditions:
-            // - toutes doivent être vraies pour arriver à la condition finale
-            // - si l'une est fausse => on ignore, pas de KO
-            //
-            // finalCondition:
-            // - seule cette condition compte nbOk / nbKo
+            // Elles reçoivent TOUTES les références + la target
+            // Donc tu peux faire :
+            // refs["ref1"].Low > refs["ref2"].Low && refs["ref3"].Low > target.Low
+            var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
+        {
+            //(
+            //    "C1",
+            //    ctx =>
+            //        ctx.Refs["ref1"].Low >= ctx.Refs["ref2"].Low &&
+            //        ctx.Refs["ref3"].Low <= ctx.Target.Low
+            //),
 
-            var entryConditions = new List<(string Name, Func<ZoneSnapshot, ZoneSnapshot, bool> Test)>
+            // Exemples :
+            // ("C2", ctx => ctx.Refs["ref1"].High > ctx.Refs["ref2"].High),
+            // ("C3", ctx => ctx.Target.Mid > ctx.Refs["ref1"].Mid),
+            // ("C4", ctx => ctx.Target.Range > ctx.Refs["ref2"].Range),
+            // ("C5", ctx => ctx.Refs["ref1"].Low > ctx.Refs["ref2"].Low && ctx.Refs["ref3"].Low > ctx.Target.Low),
+        };
+
+            // Dernière condition = seule qui compte compareOk / compareKo
+            Func<ConditionContext, bool> finalCondition =
+                ctx => ctx.Refs["refAsian"].High  > ctx.Target.Low;
+
+            // ==================================================
+            // VALIDATION CONFIG
+            // ==================================================
+            Assert.NotEmpty(references);
+
+            var duplicateReferenceKeys = references
+                .GroupBy(x => x.Key)
+                .Where(g => g.Count() > 1)
+                .Select(g => g.Key)
+                .ToArray();
+
+            Assert.True(
+                duplicateReferenceKeys.Length == 0,
+                $"Les clés de références doivent être uniques. Doublons: {string.Join(", ", duplicateReferenceKeys)}");
+
+            var referenceByKey = references.ToDictionary(x => x.Key, x => x);
+
+            // Petit helper pour extraire les refs utilisées dans les conditions
+            static IEnumerable<string> ExtractReferenceKeysFromConditions(
+                IEnumerable<(string Name, Func<ConditionContext, bool> Test)> conditions,
+                IEnumerable<string> knownKeys)
             {
-                // Exemples :
-                // ("C1", (reference, target) => target.High > reference.High),
-                // ("C2", (reference, target) => target.Low > reference.Low),
-                // ("C3", (reference, target) => target.Mid > reference.Mid),
-                // ("C4", (reference, target) => (target.High - reference.High) > 5.0),
-                // ("C5", (reference, target) => target.Range < reference.Range),
-            };
+                // Ici on ne peut pas introspecter le code du lambda.
+                // Donc on valide dynamiquement plus tard quand on construit le contexte.
+                return knownKeys;
+            }
 
-            // Dernière condition = seule qui compte OK / KO
-            Func<ZoneSnapshot, ZoneSnapshot, bool> finalCondition =
-                (reference, target) => target.Low < reference.High;
+            _ = ExtractReferenceKeysFromConditions(entryConditions, referenceByKey.Keys);
 
             // ==================================================
             // ARRANGE
@@ -378,18 +430,28 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             var zoneConfigs = chart.Test_GetSessionZoneConfigs();
 
-            var referenceZoneConfig = zoneConfigs.First(z => z.Name == referenceZoneName);
-            var targetZoneConfig = zoneConfigs.First(z => z.Name == targetZoneName);
+            var usedZoneNames = references
+                .Select(x => x.ZoneName)
+                .Append(targetZoneName)
+                .Distinct()
+                .ToArray();
 
-            var referenceZone = new SessionHighLowIndicator(
-                referenceZoneConfig.Name,
-                referenceZoneConfig.Start,
-                referenceZoneConfig.End);
+            foreach (var zoneName in usedZoneNames)
+            {
+                Assert.Contains(zoneConfigs, z => z.Name == zoneName);
+            }
 
-            var targetZone = new SessionHighLowIndicator(
-                targetZoneConfig.Name,
-                targetZoneConfig.Start,
-                targetZoneConfig.End);
+            var zoneIndicators = new Dictionary<string, SessionHighLowIndicator>();
+
+            foreach (var zoneName in usedZoneNames)
+            {
+                var config = zoneConfigs.First(z => z.Name == zoneName);
+
+                zoneIndicators[zoneName] = new SessionHighLowIndicator(
+                    config.Name,
+                    config.Start,
+                    config.End);
+            }
 
             var visitedFileIndexes = new HashSet<int> { initialLoadedFileIdx };
             HashSet<long>? visitedTimestamps = enableStrictUniqueTimestampCheck ? new HashSet<long>() : null;
@@ -397,10 +459,16 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             long totalCandlesRead = 0;
             long? previousGlobalTimestamp = null;
 
-            long? lastReferenceClosedEndTs = null;
-            long? lastTargetClosedEndTs = null;
+            var lastClosedEndTsByZone = new Dictionary<string, long?>();
 
-            ZoneSnapshot? pendingReference = null;
+            foreach (var zoneName in usedZoneNames)
+                lastClosedEndTsByZone[zoneName] = null;
+
+            // Dernière référence fermée par key
+            var pendingReferencesByKey = new Dictionary<string, ZoneSnapshot?>();
+
+            foreach (var reference in references)
+                pendingReferencesByKey[reference.Key] = null;
 
             var entryConditionPassedCounts = new int[entryConditions.Count];
             var entryConditionSkippedCounts = new int[entryConditions.Count];
@@ -427,6 +495,192 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                     output.LastLow);
             }
 
+            void OnReferenceClosed(string referenceKey, ZoneSnapshot snapshot)
+            {
+                pendingReferencesByKey[referenceKey] = snapshot;
+
+                if (enableVerboseDebug)
+                {
+                    Debug.WriteLine(
+                        $"[REFERENCE CLOSED] " +
+                        $"key={referenceKey} " +
+                        $"zone={snapshot.Name} " +
+                        $"date={snapshot.DateUtc:yyyy-MM-dd} " +
+                        $"startTs={snapshot.StartTs} " +
+                        $"endTs={snapshot.EndTs} " +
+                        $"H={snapshot.High} " +
+                        $"L={snapshot.Low} " +
+                        $"M={snapshot.Mid} " +
+                        $"R={snapshot.Range}");
+                }
+            }
+
+            bool TryBuildContextForTarget(
+                ZoneSnapshot targetSnapshot,
+                out ConditionContext? context,
+                out string failureReason)
+            {
+                var available = new Dictionary<string, ZoneSnapshot>();
+
+                foreach (var kvp in pendingReferencesByKey)
+                {
+                    if (kvp.Value is null)
+                    {
+                        failureReason = $"MISSING_REFERENCE:{kvp.Key}";
+                        context = null;
+                        return false;
+                    }
+
+                    if (kvp.Value.DateUtc != targetSnapshot.DateUtc)
+                    {
+                        failureReason =
+                            $"DATE_MISMATCH:{kvp.Key}:refDate={kvp.Value.DateUtc:yyyy-MM-dd}:targetDate={targetSnapshot.DateUtc:yyyy-MM-dd}";
+                        context = null;
+                        return false;
+                    }
+
+                    available[kvp.Key] = kvp.Value;
+                }
+
+                context = new ConditionContext(available, targetSnapshot);
+                failureReason = string.Empty;
+                return true;
+            }
+
+            void ProcessTargetClose(ZoneSnapshot targetSnapshot)
+            {
+                if (!TryBuildContextForTarget(targetSnapshot, out var context, out var failureReason))
+                {
+                    if (failureReason.StartsWith("MISSING_REFERENCE:", StringComparison.Ordinal))
+                        skippedMissingReference++;
+                    else if (failureReason.StartsWith("DATE_MISMATCH:", StringComparison.Ordinal))
+                        skippedDateMismatch++;
+
+                    if (enableVerboseDebug)
+                    {
+                        Debug.WriteLine(
+                            $"[TARGET CLOSED - SKIP CONTEXT] " +
+                            $"targetZone={targetSnapshot.Name} " +
+                            $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                            $"reason={failureReason}");
+                    }
+
+                    return;
+                }
+
+                Assert.NotNull(context);
+
+                // ==================================================
+                // CONDITIONS IMBRIQUEES
+                // ==================================================
+                bool allEntryConditionsPassed = true;
+
+                for (int i = 0; i < entryConditions.Count; i++)
+                {
+                    var (conditionName, conditionTest) = entryConditions[i];
+                    bool passed;
+
+                    try
+                    {
+                        passed = conditionTest(context);
+                    }
+                    catch (KeyNotFoundException ex)
+                    {
+                        entryConditionSkippedCounts[i]++;
+                        skippedMissingReference++;
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[SKIP {conditionName}] " +
+                                $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                                $"reason=MISSING_REFERENCE_IN_CONDITION " +
+                                $"error={ex.Message}");
+                        }
+
+                        allEntryConditionsPassed = false;
+                        break;
+                    }
+
+                    if (!passed)
+                    {
+                        entryConditionSkippedCounts[i]++;
+
+                        if (enableVerboseDebug)
+                        {
+                            string refsDump = string.Join(
+                                " | ",
+                                context.Refs.Select(r =>
+                                    $"{r.Key}:{r.Value.Name}(H={r.Value.High},L={r.Value.Low},M={r.Value.Mid},R={r.Value.Range})"));
+
+                            Debug.WriteLine(
+                                $"[SKIP {conditionName}] " +
+                                $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                                $"refs={refsDump} " +
+                                $"target(H={context.Target.High},L={context.Target.Low},M={context.Target.Mid},R={context.Target.Range})");
+                        }
+
+                        allEntryConditionsPassed = false;
+                        break;
+                    }
+
+                    entryConditionPassedCounts[i]++;
+                }
+
+                if (!allEntryConditionsPassed)
+                    return;
+
+                // ==================================================
+                // DERNIERE CONDITION = COMPTE OK / KO
+                // ==================================================
+                bool isOk;
+
+                try
+                {
+                    isOk = finalCondition(context);
+                }
+                catch (KeyNotFoundException ex)
+                {
+                    skippedMissingReference++;
+
+                    if (enableVerboseDebug)
+                    {
+                        Debug.WriteLine(
+                            $"[FINAL SKIP] " +
+                            $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                            $"reason=MISSING_REFERENCE_IN_FINAL_CONDITION " +
+                            $"error={ex.Message}");
+                    }
+
+                    return;
+                }
+
+                if (isOk)
+                    compareOk++;
+                else
+                    compareKo++;
+
+                if (enableVerboseDebug)
+                {
+                    string passedConditions =
+                        entryConditions.Count == 0
+                            ? "NO ENTRY CONDITIONS"
+                            : string.Join(" ", entryConditions.Select(c => $"{c.Name}=TRUE"));
+
+                    string refsDump = string.Join(
+                        " | ",
+                        context.Refs.Select(r =>
+                            $"{r.Key}:{r.Value.Name}(H={r.Value.High},L={r.Value.Low},M={r.Value.Mid},R={r.Value.Range})"));
+
+                    Debug.WriteLine(
+                        $"[FINAL COMPARE] " +
+                        $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                        $"refs={refsDump} | " +
+                        $"targetZone={context.Target.Name} H={context.Target.High} L={context.Target.Low} M={context.Target.Mid} R={context.Target.Range} | " +
+                        $"{passedConditions} FINAL={(isOk ? "OK" : "KO")}");
+                }
+            }
+
             void ProcessCandle(global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleItem candle)
             {
                 // ==================================================
@@ -450,142 +704,36 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 totalCandlesRead++;
 
                 // ==================================================
-                // 2) FEED DES 2 ZONES
+                // 2) FEED DE TOUTES LES ZONES UTILISEES
                 // ==================================================
-                var referenceOutput = referenceZone.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
-                var targetOutput = targetZone.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
-
-                // ==================================================
-                // 3) NOUVELLE FERMETURE DE LA ZONE DE REFERENCE
-                // ==================================================
-                if (referenceOutput is not null && referenceOutput.HasLast)
+                foreach (var zoneName in usedZoneNames)
                 {
-                    if (!lastReferenceClosedEndTs.HasValue || referenceOutput.LastEndTs != lastReferenceClosedEndTs.Value)
-                    {
-                        lastReferenceClosedEndTs = referenceOutput.LastEndTs;
-                        pendingReference = ToSnapshot(referenceOutput);
+                    var indicator = zoneIndicators[zoneName];
+                    var output = indicator.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
 
-                        if (enableVerboseDebug)
-                        {
-                            Debug.WriteLine(
-                                $"[REFERENCE CLOSED] " +
-                                $"zone={pendingReference.Name} " +
-                                $"date={pendingReference.DateUtc:yyyy-MM-dd} " +
-                                $"startTs={pendingReference.StartTs} " +
-                                $"endTs={pendingReference.EndTs} " +
-                                $"H={pendingReference.High} " +
-                                $"L={pendingReference.Low} " +
-                                $"M={pendingReference.Mid} " +
-                                $"R={pendingReference.Range}");
-                        }
+                    if (output is null || !output.HasLast)
+                        continue;
+
+                    long? lastClosedEndTs = lastClosedEndTsByZone[zoneName];
+
+                    if (lastClosedEndTs.HasValue && output.LastEndTs == lastClosedEndTs.Value)
+                        continue;
+
+                    lastClosedEndTsByZone[zoneName] = output.LastEndTs;
+
+                    var snapshot = ToSnapshot(output);
+
+                    // Si cette zone sert de référence, on met à jour toutes les clés liées à cette zone
+                    foreach (var reference in references)
+                    {
+                        if (reference.ZoneName == zoneName)
+                            OnReferenceClosed(reference.Key, snapshot);
                     }
-                }
 
-                // ==================================================
-                // 4) NOUVELLE FERMETURE DE LA ZONE CIBLE
-                // ==================================================
-                if (targetOutput is not null && targetOutput.HasLast)
-                {
-                    if (!lastTargetClosedEndTs.HasValue || targetOutput.LastEndTs != lastTargetClosedEndTs.Value)
+                    // Si cette zone est la cible, on déclenche l'évaluation
+                    if (zoneName == targetZoneName)
                     {
-                        lastTargetClosedEndTs = targetOutput.LastEndTs;
-
-                        if (pendingReference is null)
-                        {
-                            skippedMissingReference++;
-
-                            if (enableVerboseDebug)
-                            {
-                                Debug.WriteLine(
-                                    $"[TARGET CLOSED - SKIP NO REFERENCE] " +
-                                    $"zone={targetZoneName} " +
-                                    $"date={UtcFromNs(targetOutput.LastEndTs):yyyy-MM-dd}");
-                            }
-
-                            return;
-                        }
-
-                        var targetSnapshot = ToSnapshot(targetOutput);
-
-                        if (pendingReference.DateUtc != targetSnapshot.DateUtc)
-                        {
-                            skippedDateMismatch++;
-
-                            if (enableVerboseDebug)
-                            {
-                                Debug.WriteLine(
-                                    $"[TARGET CLOSED - SKIP DATE MISMATCH] " +
-                                    $"referenceDate={pendingReference.DateUtc:yyyy-MM-dd} " +
-                                    $"targetDate={targetSnapshot.DateUtc:yyyy-MM-dd}");
-                            }
-
-                            pendingReference = null;
-                            return;
-                        }
-
-                        // ==================================================
-                        // 5) CONDITIONS IMBRIQUEES
-                        // ==================================================
-                        bool allEntryConditionsPassed = true;
-
-                        for (int i = 0; i < entryConditions.Count; i++)
-                        {
-                            var (conditionName, conditionTest) = entryConditions[i];
-                            bool passed = conditionTest(pendingReference, targetSnapshot);
-
-                            if (!passed)
-                            {
-                                entryConditionSkippedCounts[i]++;
-
-                                if (enableVerboseDebug)
-                                {
-                                    Debug.WriteLine(
-                                        $"[SKIP {conditionName}] " +
-                                        $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
-                                        $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
-                                        $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
-                                }
-
-                                allEntryConditionsPassed = false;
-                                break;
-                            }
-
-                            entryConditionPassedCounts[i]++;
-                        }
-
-                        if (!allEntryConditionsPassed)
-                        {
-                            pendingReference = null;
-                            return;
-                        }
-
-                        // ==================================================
-                        // 6) DERNIERE CONDITION = COMPTE OK / KO
-                        // ==================================================
-                        bool isOk = finalCondition(pendingReference, targetSnapshot);
-
-                        if (isOk)
-                            compareOk++;
-                        else
-                            compareKo++;
-
-                        if (enableVerboseDebug)
-                        {
-                            string passedConditions =
-                                entryConditions.Count == 0
-                                    ? "NO ENTRY CONDITIONS"
-                                    : string.Join(" ", entryConditions.Select(c => $"{c.Name}=TRUE"));
-
-                            Debug.WriteLine(
-                                $"[FINAL COMPARE] " +
-                                $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
-                                $"referenceZone={pendingReference.Name} H={pendingReference.High} L={pendingReference.Low} M={pendingReference.Mid} R={pendingReference.Range} | " +
-                                $"targetZone={targetSnapshot.Name} H={targetSnapshot.High} L={targetSnapshot.Low} M={targetSnapshot.Mid} R={targetSnapshot.Range} | " +
-                                $"{passedConditions} FINAL={(isOk ? "OK" : "KO")}");
-                        }
-
-                        // cycle consommé
-                        pendingReference = null;
+                        ProcessTargetClose(snapshot);
                     }
                 }
             }
@@ -675,8 +823,8 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             Debug.WriteLine("==================================================");
             Debug.WriteLine("[ZONE COMPARISON SUMMARY]");
-            Debug.WriteLine($"referenceZone={referenceZoneName}");
             Debug.WriteLine($"targetZone={targetZoneName}");
+            Debug.WriteLine($"references={string.Join(", ", references.Select(r => $"{r.Key}:{r.ZoneName}"))}");
             Debug.WriteLine($"filesRead={visitedFileIndexes.Count}/{expectedTotalFiles}");
             Debug.WriteLine($"candlesRead={totalCandlesRead}{(expectedTotalCandles.HasValue ? $"/{expectedTotalCandles.Value}" : "")}");
 
