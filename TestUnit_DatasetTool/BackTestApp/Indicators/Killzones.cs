@@ -78,6 +78,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             int compareKo = 0;
             int skippedNoMorning = 0;
             int skippedDateMismatch = 0;
+            int nbMaxWin = 0;
+            int nbCurrentWin = 0;
+            int nbMaxLoss = 0;
+            int nbCurrentLoss = 0;
 
             static DateTime UtcFromNs(long tsNs)
             {
@@ -163,10 +167,23 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
                         bool isOk = a.LastLow < (m.LastHigh - (m.LastHigh - m.LastLow));
 
-                        if (isOk)
+                        if (isOk) {
                             compareOk++;
-                        else
+                            nbCurrentWin++;
+                            nbCurrentLoss = 0;
+                        } else
+                        {
                             compareKo++;
+                            nbCurrentWin = 0;
+                            nbCurrentLoss++;
+                        }
+
+                        if (nbCurrentWin > nbMaxWin) nbMaxWin = nbCurrentWin;
+
+                        if (nbCurrentLoss > nbMaxLoss) nbMaxLoss = nbCurrentLoss;
+
+
+
 
                         //Debug.WriteLine(
                         //    $"[COMPARE] date={afternoonDate:yyyy-MM-dd} " +
@@ -345,13 +362,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // refs["ref1"].Low > refs["ref2"].Low && refs["ref3"].Low > target.Low
             var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
         {
-            //(
-            //    "C1",
-            //    ctx =>
-            //        ctx.Refs["ref1"].Low >= ctx.Refs["ref2"].Low &&
-            //        ctx.Refs["ref3"].Low <= ctx.Target.Low
-            //),
-
+            //("C1", ctx => ctx.Refs["refAsian"].Low  < ctx.Target.High),
+            //("C2", ctx => (ctx.Refs["refAsian"].Low+(ctx.Refs["refAsian"].Range)*2) < ctx.Target.High),
+            //("C2", ctx => ctx.Refs["refAsian"].Low  > ctx.Refs["refLondon"].Low),
+            //("C3", ctx => ctx.Refs["refAsian"].Low+ (ctx.Refs["refAsian"].Range*2)  < ctx.Target.High),
             // Exemples :
             // ("C2", ctx => ctx.Refs["ref1"].High > ctx.Refs["ref2"].High),
             // ("C3", ctx => ctx.Target.Mid > ctx.Refs["ref1"].Mid),
@@ -361,7 +375,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             // Dernière condition = seule qui compte compareOk / compareKo
             Func<ConditionContext, bool> finalCondition =
-                ctx => ctx.Refs["refAsian"].High  > ctx.Target.Low;
+                ctx => (ctx.Refs["refAsian"].Low < ctx.Target.High) && (ctx.Refs["refAsian"].Low + (ctx.Refs["refAsian"].Range) * 2) < ctx.Target.High;
 
             // ==================================================
             // VALIDATION CONFIG
@@ -477,6 +491,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             int compareKo = 0;
             int skippedMissingReference = 0;
             int skippedDateMismatch = 0;
+            int nbMaxWin = 0;
+            int nbCurrentWin = 0;
+            int nbMaxLoss = 0;
+            int nbCurrentLoss = 0;
 
             static DateTime UtcFromNs(long tsNs)
             {
@@ -656,9 +674,21 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 }
 
                 if (isOk)
+                {
                     compareOk++;
+                    nbCurrentWin++;
+                    nbCurrentLoss = 0;
+                }
                 else
+                {
                     compareKo++;
+                    nbCurrentWin = 0;
+                    nbCurrentLoss++;
+                }
+
+                if (nbCurrentWin > nbMaxWin) nbMaxWin = nbCurrentWin;
+
+                if (nbCurrentLoss > nbMaxLoss) nbMaxLoss = nbCurrentLoss;
 
                 if (enableVerboseDebug)
                 {
@@ -837,6 +867,8 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             Debug.WriteLine($"compareOk={compareOk}");
             Debug.WriteLine($"compareKo={compareKo}");
             Debug.WriteLine($"compareOkRate={(totalComparisons > 0 ? (double)compareOk / totalComparisons : 0):P2}");
+            Debug.WriteLine($"maxConsecutiveWins={nbMaxWin}");
+            Debug.WriteLine($"maxConsecutiveLosses={nbMaxLoss}");
             Debug.WriteLine($"totalComparisons={totalComparisons}");
             Debug.WriteLine($"skippedMissingReference={skippedMissingReference}");
             Debug.WriteLine($"skippedDateMismatch={skippedDateMismatch}");
