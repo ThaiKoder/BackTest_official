@@ -289,20 +289,22 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 "Aucune comparaison Morning -> Afternoon n'a été produite.");
         }
 
+
+
         private sealed record ZoneSnapshot(
-                string Name,
-                DateTime DateUtc,
-                long StartTs,
-                long EndTs,
-                double High,
-                double Low)
+            string Name,
+            DateTime DateUtc,
+            long StartTs,
+            long EndTs,
+            double High,
+            double Low)
         {
             public double Mid => (High + Low) / 2.0;
             public double Range => High - Low;
         }
 
         [Fact]
-        public void LoadNext_Should_Compare_Zones_With_Multiple_Nested_Conditions_And_Count_Only_On_Last_Condition()
+        public void LoadNext_Should_Compare_Zones_With_Generic_Nested_Conditions_And_Count_Only_On_Final_Condition()
         {
             // ==================================================
             // CONFIG TEST
@@ -317,25 +319,26 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // ==================================================
             // CONDITIONS IMBRIQUEES
             // ==================================================
-            // Règle:
-            // - si condition 1 false => on ignore, pas de KO
-            // - si condition 1 true mais condition 2 false => on ignore, pas de KO
-            // - si condition 1 true et condition 2 true mais condition 3 false => on ignore, pas de KO
-            // - seulement si toutes les conditions précédentes sont vraies,
-            //   alors la dernière condition compte nbOk / nbKo
+            // entryConditions:
+            // - toutes doivent être vraies pour arriver à la condition finale
+            // - si l'une est fausse => on ignore, pas de KO
+            //
+            // finalCondition:
+            // - seule cette condition compte nbOk / nbKo
 
-            static bool Condition1(ZoneSnapshot reference, ZoneSnapshot target)
-                => target.High > reference.High;
+            var entryConditions = new List<(string Name, Func<ZoneSnapshot, ZoneSnapshot, bool> Test)>
+            {
+                // Exemples :
+                // ("C1", (reference, target) => target.High > reference.High),
+                // ("C2", (reference, target) => target.Low > reference.Low),
+                // ("C3", (reference, target) => target.Mid > reference.Mid),
+                // ("C4", (reference, target) => (target.High - reference.High) > 5.0),
+                // ("C5", (reference, target) => target.Range < reference.Range),
+            };
 
-            static bool Condition2(ZoneSnapshot reference, ZoneSnapshot target)
-                => target.Low > reference.Low;
-
-            static bool Condition3(ZoneSnapshot reference, ZoneSnapshot target)
-                => target.Mid > reference.Mid;
-
-            // DERNIERE CONDITION = seule qui compte OK / KO
-            static bool FinalCondition(ZoneSnapshot reference, ZoneSnapshot target)
-                => target.Range < reference.Range;
+            // Dernière condition = seule qui compte OK / KO
+            Func<ZoneSnapshot, ZoneSnapshot, bool> finalCondition =
+                (reference, target) => target.Low < reference.High;
 
             // ==================================================
             // ARRANGE
@@ -399,13 +402,8 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             ZoneSnapshot? pendingReference = null;
 
-            int condition1Passed = 0;
-            int condition2Passed = 0;
-            int condition3Passed = 0;
-
-            int skippedBeforeCondition1 = 0;
-            int skippedBeforeCondition2 = 0;
-            int skippedBeforeCondition3 = 0;
+            var entryConditionPassedCounts = new int[entryConditions.Count];
+            var entryConditionSkippedCounts = new int[entryConditions.Count];
 
             int compareOk = 0;
             int compareKo = 0;
@@ -528,71 +526,43 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         // ==================================================
                         // 5) CONDITIONS IMBRIQUEES
                         // ==================================================
+                        bool allEntryConditionsPassed = true;
 
-                        bool c1 = Condition1(pendingReference, targetSnapshot);
-                        if (!c1)
+                        for (int i = 0; i < entryConditions.Count; i++)
                         {
-                            skippedBeforeCondition1++;
+                            var (conditionName, conditionTest) = entryConditions[i];
+                            bool passed = conditionTest(pendingReference, targetSnapshot);
 
-                            if (enableVerboseDebug)
+                            if (!passed)
                             {
-                                Debug.WriteLine(
-                                    $"[SKIP C1] " +
-                                    $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
-                                    $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
-                                    $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
+                                entryConditionSkippedCounts[i]++;
+
+                                if (enableVerboseDebug)
+                                {
+                                    Debug.WriteLine(
+                                        $"[SKIP {conditionName}] " +
+                                        $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                                        $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
+                                        $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
+                                }
+
+                                allEntryConditionsPassed = false;
+                                break;
                             }
 
+                            entryConditionPassedCounts[i]++;
+                        }
+
+                        if (!allEntryConditionsPassed)
+                        {
                             pendingReference = null;
                             return;
                         }
-
-                        condition1Passed++;
-
-                        bool c2 = Condition2(pendingReference, targetSnapshot);
-                        if (!c2)
-                        {
-                            skippedBeforeCondition2++;
-
-                            if (enableVerboseDebug)
-                            {
-                                Debug.WriteLine(
-                                    $"[SKIP C2] " +
-                                    $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
-                                    $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
-                                    $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
-                            }
-
-                            pendingReference = null;
-                            return;
-                        }
-
-                        condition2Passed++;
-
-                        bool c3 = Condition3(pendingReference, targetSnapshot);
-                        if (!c3)
-                        {
-                            skippedBeforeCondition3++;
-
-                            if (enableVerboseDebug)
-                            {
-                                Debug.WriteLine(
-                                    $"[SKIP C3] " +
-                                    $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
-                                    $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
-                                    $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
-                            }
-
-                            pendingReference = null;
-                            return;
-                        }
-
-                        condition3Passed++;
 
                         // ==================================================
                         // 6) DERNIERE CONDITION = COMPTE OK / KO
                         // ==================================================
-                        bool isOk = FinalCondition(pendingReference, targetSnapshot);
+                        bool isOk = finalCondition(pendingReference, targetSnapshot);
 
                         if (isOk)
                             compareOk++;
@@ -601,12 +571,17 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
                         if (enableVerboseDebug)
                         {
+                            string passedConditions =
+                                entryConditions.Count == 0
+                                    ? "NO ENTRY CONDITIONS"
+                                    : string.Join(" ", entryConditions.Select(c => $"{c.Name}=TRUE"));
+
                             Debug.WriteLine(
                                 $"[FINAL COMPARE] " +
                                 $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
                                 $"referenceZone={pendingReference.Name} H={pendingReference.High} L={pendingReference.Low} M={pendingReference.Mid} R={pendingReference.Range} | " +
                                 $"targetZone={targetSnapshot.Name} H={targetSnapshot.High} L={targetSnapshot.Low} M={targetSnapshot.Mid} R={targetSnapshot.Range} | " +
-                                $"C1=TRUE C2=TRUE C3=TRUE FINAL={(isOk ? "OK" : "KO")}");
+                                $"{passedConditions} FINAL={(isOk ? "OK" : "KO")}");
                         }
 
                         // cycle consommé
@@ -704,12 +679,13 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             Debug.WriteLine($"targetZone={targetZoneName}");
             Debug.WriteLine($"filesRead={visitedFileIndexes.Count}/{expectedTotalFiles}");
             Debug.WriteLine($"candlesRead={totalCandlesRead}{(expectedTotalCandles.HasValue ? $"/{expectedTotalCandles.Value}" : "")}");
-            Debug.WriteLine($"condition1Passed={condition1Passed}");
-            Debug.WriteLine($"condition2Passed={condition2Passed}");
-            Debug.WriteLine($"condition3Passed={condition3Passed}");
-            Debug.WriteLine($"skippedBeforeCondition1={skippedBeforeCondition1}");
-            Debug.WriteLine($"skippedBeforeCondition2={skippedBeforeCondition2}");
-            Debug.WriteLine($"skippedBeforeCondition3={skippedBeforeCondition3}");
+
+            for (int i = 0; i < entryConditions.Count; i++)
+            {
+                Debug.WriteLine($"{entryConditions[i].Name}Passed={entryConditionPassedCounts[i]}");
+                Debug.WriteLine($"{entryConditions[i].Name}Skipped={entryConditionSkippedCounts[i]}");
+            }
+
             Debug.WriteLine($"compareOk={compareOk}");
             Debug.WriteLine($"compareKo={compareKo}");
             Debug.WriteLine($"compareOkRate={(totalComparisons > 0 ? (double)compareOk / totalComparisons : 0):P2}");
@@ -724,3 +700,4 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
         }
     }
 }
+
