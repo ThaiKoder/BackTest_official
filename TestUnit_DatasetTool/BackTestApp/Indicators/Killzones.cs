@@ -161,7 +161,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                             return;
                         }
 
-                        bool isOk = a.LastLow < (m.LastHigh-(m.LastHigh- m.LastLow));
+                        bool isOk = a.LastLow < (m.LastHigh - (m.LastHigh - m.LastLow));
 
                         if (isOk)
                             compareOk++;
@@ -289,16 +289,20 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 "Aucune comparaison Morning -> Afternoon n'a été produite.");
         }
 
-        private enum ZoneMetric
+        private sealed record ZoneSnapshot(
+                string Name,
+                DateTime DateUtc,
+                long StartTs,
+                long EndTs,
+                double High,
+                double Low)
         {
-            High,
-            Mid,
-            Low,
-            Range
+            public double Mid => (High + Low) / 2.0;
+            public double Range => High - Low;
         }
 
         [Fact]
-        public void LoadNext_Should_Compare_SelectedMetric_Between_Two_Zones_After_Each_Completed_Cycle()
+        public void LoadNext_Should_Compare_Zones_With_Multiple_Nested_Conditions_And_Count_Only_On_Last_Condition()
         {
             // ==================================================
             // CONFIG TEST
@@ -306,19 +310,32 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             const string referenceZoneName = "Asian";
             const string targetZoneName = "NY AM";
 
-            const ZoneMetric referenceMetric = ZoneMetric.Low;
-            const ZoneMetric targetMetric = ZoneMetric.Mid;
-
-            // Exemples :
-            // target > reference   => (targetValue, referenceValue) => targetValue > referenceValue
-            // target < reference   => (targetValue, referenceValue) => targetValue < referenceValue
-            // target >= reference  => (targetValue, referenceValue) => targetValue >= referenceValue
-            // target <= reference  => (targetValue, referenceValue) => targetValue <= referenceValue
-            static bool Comparison(double targetValue, double referenceValue) => referenceValue > targetValue;
-
-            const bool enableExactExpectedCandleCount = false;   // false = ultra rapide
-            const bool enableStrictUniqueTimestampCheck = true;  // peut être mis à false pour encore plus de vitesse
+            const bool enableExactExpectedCandleCount = false;   // false = plus rapide
+            const bool enableStrictUniqueTimestampCheck = true;  // false = encore plus rapide
             const bool enableVerboseDebug = false;
+
+            // ==================================================
+            // CONDITIONS IMBRIQUEES
+            // ==================================================
+            // Règle:
+            // - si condition 1 false => on ignore, pas de KO
+            // - si condition 1 true mais condition 2 false => on ignore, pas de KO
+            // - si condition 1 true et condition 2 true mais condition 3 false => on ignore, pas de KO
+            // - seulement si toutes les conditions précédentes sont vraies,
+            //   alors la dernière condition compte nbOk / nbKo
+
+            static bool Condition1(ZoneSnapshot reference, ZoneSnapshot target)
+                => target.High > reference.High;
+
+            static bool Condition2(ZoneSnapshot reference, ZoneSnapshot target)
+                => target.Low > reference.Low;
+
+            static bool Condition3(ZoneSnapshot reference, ZoneSnapshot target)
+                => target.Mid > reference.Mid;
+
+            // DERNIERE CONDITION = seule qui compte OK / KO
+            static bool FinalCondition(ZoneSnapshot reference, ZoneSnapshot target)
+                => target.Range < reference.Range;
 
             // ==================================================
             // ARRANGE
@@ -333,6 +350,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             if (enableExactExpectedCandleCount)
             {
                 long exactCount = 0;
+
                 for (int fileIdx = 0; fileIdx < expectedTotalFiles; fileIdx++)
                 {
                     chart.Test_CandlesLoadFromCurrentFileIndex(fileIdx);
@@ -379,25 +397,20 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             long? lastReferenceClosedEndTs = null;
             long? lastTargetClosedEndTs = null;
 
-            long? pendingReferenceEndTs = null;
-            double? pendingReferenceValue = null;
+            ZoneSnapshot? pendingReference = null;
+
+            int condition1Passed = 0;
+            int condition2Passed = 0;
+            int condition3Passed = 0;
+
+            int skippedBeforeCondition1 = 0;
+            int skippedBeforeCondition2 = 0;
+            int skippedBeforeCondition3 = 0;
 
             int compareOk = 0;
             int compareKo = 0;
             int skippedMissingReference = 0;
             int skippedDateMismatch = 0;
-
-            static double SelectMetric(SessionHighLowIndicator.Output output, ZoneMetric metric)
-            {
-                return metric switch
-                {
-                    ZoneMetric.High => output.LastHigh,
-                    ZoneMetric.Mid => (output.LastHigh + output.LastLow) / 2.0,
-                    ZoneMetric.Low => output.LastLow,
-                    ZoneMetric.Range => output.LastHigh - output.LastLow,
-                    _ => throw new ArgumentOutOfRangeException()
-                };
-            }
 
             static DateTime UtcFromNs(long tsNs)
             {
@@ -405,9 +418,22 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 return DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
             }
 
+            static ZoneSnapshot ToSnapshot(SessionHighLowIndicator.Output output)
+            {
+                return new ZoneSnapshot(
+                    output.Name,
+                    UtcFromNs(output.LastEndTs).Date,
+                    output.LastStartTs,
+                    output.LastEndTs,
+                    output.LastHigh,
+                    output.LastLow);
+            }
+
             void ProcessCandle(global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleItem candle)
             {
-                // 1) Contrôle de progression globale
+                // ==================================================
+                // 1) CONTROLES GLOBAUX
+                // ==================================================
                 if (previousGlobalTimestamp.HasValue)
                 {
                     Assert.True(
@@ -425,38 +451,48 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 previousGlobalTimestamp = candle.Ts;
                 totalCandlesRead++;
 
-                // 2) Feed des 2 zones
+                // ==================================================
+                // 2) FEED DES 2 ZONES
+                // ==================================================
                 var referenceOutput = referenceZone.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
                 var targetOutput = targetZone.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
 
-                // 3) Détection fermeture nouvelle zone de référence
+                // ==================================================
+                // 3) NOUVELLE FERMETURE DE LA ZONE DE REFERENCE
+                // ==================================================
                 if (referenceOutput is not null && referenceOutput.HasLast)
                 {
                     if (!lastReferenceClosedEndTs.HasValue || referenceOutput.LastEndTs != lastReferenceClosedEndTs.Value)
                     {
                         lastReferenceClosedEndTs = referenceOutput.LastEndTs;
-                        pendingReferenceEndTs = referenceOutput.LastEndTs;
-                        pendingReferenceValue = SelectMetric(referenceOutput, referenceMetric);
+                        pendingReference = ToSnapshot(referenceOutput);
 
                         if (enableVerboseDebug)
                         {
                             Debug.WriteLine(
                                 $"[REFERENCE CLOSED] " +
-                                $"zone={referenceZoneName} " +
-                                $"date={UtcFromNs(referenceOutput.LastEndTs):yyyy-MM-dd} " +
-                                $"value={pendingReferenceValue}");
+                                $"zone={pendingReference.Name} " +
+                                $"date={pendingReference.DateUtc:yyyy-MM-dd} " +
+                                $"startTs={pendingReference.StartTs} " +
+                                $"endTs={pendingReference.EndTs} " +
+                                $"H={pendingReference.High} " +
+                                $"L={pendingReference.Low} " +
+                                $"M={pendingReference.Mid} " +
+                                $"R={pendingReference.Range}");
                         }
                     }
                 }
 
-                // 4) Détection fermeture nouvelle zone cible
+                // ==================================================
+                // 4) NOUVELLE FERMETURE DE LA ZONE CIBLE
+                // ==================================================
                 if (targetOutput is not null && targetOutput.HasLast)
                 {
                     if (!lastTargetClosedEndTs.HasValue || targetOutput.LastEndTs != lastTargetClosedEndTs.Value)
                     {
                         lastTargetClosedEndTs = targetOutput.LastEndTs;
 
-                        if (!pendingReferenceEndTs.HasValue || !pendingReferenceValue.HasValue)
+                        if (pendingReference is null)
                         {
                             skippedMissingReference++;
 
@@ -471,10 +507,9 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                             return;
                         }
 
-                        var referenceDate = UtcFromNs(pendingReferenceEndTs.Value).Date;
-                        var targetDate = UtcFromNs(targetOutput.LastEndTs).Date;
+                        var targetSnapshot = ToSnapshot(targetOutput);
 
-                        if (referenceDate != targetDate)
+                        if (pendingReference.DateUtc != targetSnapshot.DateUtc)
                         {
                             skippedDateMismatch++;
 
@@ -482,17 +517,82 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                             {
                                 Debug.WriteLine(
                                     $"[TARGET CLOSED - SKIP DATE MISMATCH] " +
-                                    $"referenceDate={referenceDate:yyyy-MM-dd} " +
-                                    $"targetDate={targetDate:yyyy-MM-dd}");
+                                    $"referenceDate={pendingReference.DateUtc:yyyy-MM-dd} " +
+                                    $"targetDate={targetSnapshot.DateUtc:yyyy-MM-dd}");
                             }
 
-                            pendingReferenceEndTs = null;
-                            pendingReferenceValue = null;
+                            pendingReference = null;
                             return;
                         }
 
-                        double targetValue = SelectMetric(targetOutput, targetMetric);
-                        bool isOk = Comparison(targetValue, pendingReferenceValue.Value);
+                        // ==================================================
+                        // 5) CONDITIONS IMBRIQUEES
+                        // ==================================================
+
+                        bool c1 = Condition1(pendingReference, targetSnapshot);
+                        if (!c1)
+                        {
+                            skippedBeforeCondition1++;
+
+                            if (enableVerboseDebug)
+                            {
+                                Debug.WriteLine(
+                                    $"[SKIP C1] " +
+                                    $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                                    $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
+                                    $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
+                            }
+
+                            pendingReference = null;
+                            return;
+                        }
+
+                        condition1Passed++;
+
+                        bool c2 = Condition2(pendingReference, targetSnapshot);
+                        if (!c2)
+                        {
+                            skippedBeforeCondition2++;
+
+                            if (enableVerboseDebug)
+                            {
+                                Debug.WriteLine(
+                                    $"[SKIP C2] " +
+                                    $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                                    $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
+                                    $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
+                            }
+
+                            pendingReference = null;
+                            return;
+                        }
+
+                        condition2Passed++;
+
+                        bool c3 = Condition3(pendingReference, targetSnapshot);
+                        if (!c3)
+                        {
+                            skippedBeforeCondition3++;
+
+                            if (enableVerboseDebug)
+                            {
+                                Debug.WriteLine(
+                                    $"[SKIP C3] " +
+                                    $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                                    $"ref(H={pendingReference.High}, L={pendingReference.Low}, M={pendingReference.Mid}, R={pendingReference.Range}) " +
+                                    $"target(H={targetSnapshot.High}, L={targetSnapshot.Low}, M={targetSnapshot.Mid}, R={targetSnapshot.Range})");
+                            }
+
+                            pendingReference = null;
+                            return;
+                        }
+
+                        condition3Passed++;
+
+                        // ==================================================
+                        // 6) DERNIERE CONDITION = COMPTE OK / KO
+                        // ==================================================
+                        bool isOk = FinalCondition(pendingReference, targetSnapshot);
 
                         if (isOk)
                             compareOk++;
@@ -502,22 +602,21 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         if (enableVerboseDebug)
                         {
                             Debug.WriteLine(
-                                $"[COMPARE] " +
-                                $"date={targetDate:yyyy-MM-dd} " +
-                                $"referenceZone={referenceZoneName} referenceMetric={referenceMetric} referenceValue={pendingReferenceValue.Value} " +
-                                $"targetZone={targetZoneName} targetMetric={targetMetric} targetValue={targetValue} " +
-                                $"result={(isOk ? "OK" : "KO")}");
+                                $"[FINAL COMPARE] " +
+                                $"date={targetSnapshot.DateUtc:yyyy-MM-dd} " +
+                                $"referenceZone={pendingReference.Name} H={pendingReference.High} L={pendingReference.Low} M={pendingReference.Mid} R={pendingReference.Range} | " +
+                                $"targetZone={targetSnapshot.Name} H={targetSnapshot.High} L={targetSnapshot.Low} M={targetSnapshot.Mid} R={targetSnapshot.Range} | " +
+                                $"C1=TRUE C2=TRUE C3=TRUE FINAL={(isOk ? "OK" : "KO")}");
                         }
 
                         // cycle consommé
-                        pendingReferenceEndTs = null;
-                        pendingReferenceValue = null;
+                        pendingReference = null;
                     }
                 }
             }
 
             // ==================================================
-            // FENÊTRE INITIALE
+            // FENETRE INITIALE
             // ==================================================
             foreach (var candle in initialWindowCandles)
             {
@@ -602,11 +701,15 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             Debug.WriteLine("==================================================");
             Debug.WriteLine("[ZONE COMPARISON SUMMARY]");
             Debug.WriteLine($"referenceZone={referenceZoneName}");
-            Debug.WriteLine($"referenceMetric={referenceMetric}");
             Debug.WriteLine($"targetZone={targetZoneName}");
-            Debug.WriteLine($"targetMetric={targetMetric}");
             Debug.WriteLine($"filesRead={visitedFileIndexes.Count}/{expectedTotalFiles}");
             Debug.WriteLine($"candlesRead={totalCandlesRead}{(expectedTotalCandles.HasValue ? $"/{expectedTotalCandles.Value}" : "")}");
+            Debug.WriteLine($"condition1Passed={condition1Passed}");
+            Debug.WriteLine($"condition2Passed={condition2Passed}");
+            Debug.WriteLine($"condition3Passed={condition3Passed}");
+            Debug.WriteLine($"skippedBeforeCondition1={skippedBeforeCondition1}");
+            Debug.WriteLine($"skippedBeforeCondition2={skippedBeforeCondition2}");
+            Debug.WriteLine($"skippedBeforeCondition3={skippedBeforeCondition3}");
             Debug.WriteLine($"compareOk={compareOk}");
             Debug.WriteLine($"compareKo={compareKo}");
             Debug.WriteLine($"compareOkRate={(totalComparisons > 0 ? (double)compareOk / totalComparisons : 0):P2}");
@@ -617,7 +720,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             Assert.True(
                 totalComparisons > 0,
-                "Aucune comparaison entre les deux zones n'a été produite.");
+                "Aucune comparaison finale n'a été produite.");
         }
     }
 }
