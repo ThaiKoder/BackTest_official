@@ -335,9 +335,9 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // ==================================================
             const string targetZoneName = "NY AM";
 
-            const bool enableExactExpectedCandleCount = true;    // false = plus rapide
-            const bool enableStrictUniqueTimestampCheck = true;  // false = encore plus rapide
-            const bool enableVerboseDebug = true;
+            const bool enableExactExpectedCandleCount = false;    // false = plus rapide
+            const bool enableStrictUniqueTimestampCheck = false;  // false = encore plus rapide
+            const bool enableVerboseDebug = false;
 
             // ==================================================
             // REFERENCES DYNAMIQUES
@@ -346,7 +346,8 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             var references = new List<ReferenceConfig>
         {
             new("refAsian", "Asian"),
-            new("refLondon", "London")
+            new("refLondon", "London"),
+            new("refLondon-NY AM", "Between London - NY AM")
 
             // Exemples si tu as d'autres zones dans ton indicateur :
             // new("ref4", "Asian"),
@@ -362,10 +363,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // refs["ref1"].Low > refs["ref2"].Low && refs["ref3"].Low > target.Low
             var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
         {
-            //("C1", ctx => ctx.Refs["refAsian"].Low  < ctx.Target.High),
-            //("C2", ctx => (ctx.Refs["refAsian"].Low+(ctx.Refs["refAsian"].Range)*2) < ctx.Target.High),
-            //("C2", ctx => ctx.Refs["refAsian"].Low  > ctx.Refs["refLondon"].Low),
-            //("C3", ctx => ctx.Refs["refAsian"].Low+ (ctx.Refs["refAsian"].Range*2)  < ctx.Target.High),
+
+            //("C3", ctx => ctx.Refs["refAsian"].Range < ctx.Refs["refLondon"].Range),
+            //("C4", ctx => ctx.Refs["refAsian"].Low > ctx.Refs["refLondon-NY AM"].Low)
+
             // Exemples :
             // ("C2", ctx => ctx.Refs["ref1"].High > ctx.Refs["ref2"].High),
             // ("C3", ctx => ctx.Target.Mid > ctx.Refs["ref1"].Mid),
@@ -375,7 +376,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             // Dernière condition = seule qui compte compareOk / compareKo
             Func<ConditionContext, bool> finalCondition =
-                ctx => (ctx.Refs["refAsian"].Low < ctx.Target.High) && (ctx.Refs["refAsian"].Low + (ctx.Refs["refAsian"].Range) * 2) < ctx.Target.High;
+                ctx => ((ctx.Refs["refAsian"].Low >= ctx.Target.Low) && ((ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range) >= ctx.Target.Low));
 
             // ==================================================
             // VALIDATION CONFIG

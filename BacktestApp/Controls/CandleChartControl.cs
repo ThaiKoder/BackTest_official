@@ -53,8 +53,15 @@ public sealed partial class CandleChartControl : Control
 
         new SessionZoneDefinition(
             "NY AM",
-            new TimeSpan(13, 0, 0),
+            new TimeSpan(13, 30, 0),
             new TimeSpan(16, 0, 0),
+            new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)),
+
+                new SessionZoneDefinition(
+            "Between London - NY AM",
+            new TimeSpan(10, 0, 0),
+            new TimeSpan(13, 30, 0),
             new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
             new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2))
     };
