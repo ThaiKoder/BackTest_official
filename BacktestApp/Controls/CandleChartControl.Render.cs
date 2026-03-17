@@ -3,9 +3,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
-using BacktestApp.Indicators;
 using System;
-using System.Diagnostics;
 using System.Globalization;
 
 namespace BacktestApp.Controls;
@@ -45,81 +43,6 @@ public sealed partial class CandleChartControl
         1000.0, 2000.0, 5000.0
     };
 
-    private static readonly Pen SessionPen =
-        new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 2);
-
-    private static readonly IBrush SessionBrush =
-        new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
-
-    private void DrawSessionZone(
-        DrawingContext ctx,
-        Rect plot,
-        SessionHighLowIndicator.Output? output,
-        SessionZoneDefinition definition)
-    {
-        if (output is null || !output.HasLast)
-            return;
-
-        double x1 = WorldTimeToScreenX(
-            TsNsToEpochSeconds(output.LastStartTs),
-            plot);
-
-        double x2 = WorldTimeToScreenX(
-            TsNsToEpochSeconds(output.LastEndTs),
-            plot);
-
-        double yHigh = PriceToY(output.LastHigh, plot);
-        double yLow = PriceToY(output.LastLow, plot);
-
-        double left = Math.Min(x1, x2);
-        double width = Math.Abs(x2 - x1);
-
-        double top = Math.Min(yHigh, yLow);
-        double height = Math.Abs(yLow - yHigh);
-
-        if (width <= 0 || height <= 0)
-            return;
-
-
-        var rect = new Rect(left, top, width, height);
-        ctx.DrawRectangle(definition.Fill, definition.Border, rect);
-
-        // =========================
-        // Texte sous le LOW
-        // =========================
-
-        string label = output.Name;
-        var textBrush = definition.Border.Brush;
-
-        var ft = new FormattedText(
-            label,
-            CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight,
-            new Typeface("Segoe UI"),
-            12,
-            textBrush);
-
-        double textX = left + width * 0.5 - ft.Width / 2;
-        double textY = yLow + 4; // sous le low
-
-        ctx.DrawText(ft, new Point(textX, textY));
-    }
-
-
-    private void DrawAllSessionZones(DrawingContext ctx, Rect plot)
-    {
-        int count = Math.Min(_sessionZoneDefinitions.Count, _sessionOutputs.Count);
-
-        for (int i = 0; i < count; i++)
-        {
-            DrawSessionZone(
-                ctx,
-                plot,
-                _sessionOutputs[i],
-                _sessionZoneDefinitions[i]);
-        }
-    }
-
     public override void Render(DrawingContext ctx)
     {
         base.Render(ctx);
@@ -131,7 +54,6 @@ public sealed partial class CandleChartControl
         if (plot.Width <= 0 || plot.Height <= 0) return;
 
         var bgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
-        var axisBgBrush = (IBrush?)Application.Current?.FindResource("Color.Background") ?? Brushes.Black;
         ctx.FillRectangle(bgBrush, bounds);
 
         if (_windowLoaded <= 0) return;
@@ -190,12 +112,11 @@ public sealed partial class CandleChartControl
                 var body = new Rect(xCenter - bodyW / 2, top, bodyW, height);
                 ctx.FillRectangle(brush, body);
             }
+
+            // IMPORTANT : les killzones sont dessinées ici
+            DrawIndicators(ctx, plot);
         }
 
-        DrawAllSessionZones(ctx, plot);
-        DebugKillZones();
-
-        // Mise à jour des axes dans des buffers fixes
         UpdateYAxisTicks(plot);
         UpdateXAxisTicks(plot);
 
@@ -263,7 +184,6 @@ public sealed partial class CandleChartControl
         }
     }
 
-
     private static string FormatXAxisLabel(double timeSec, int stepSec)
     {
         var dt = DateTimeOffset.FromUnixTimeSeconds((long)timeSec).UtcDateTime;
@@ -296,7 +216,6 @@ public sealed partial class CandleChartControl
                 12,
                 labelBrush);
 
-            // aligné dans la marge de gauche
             double textX = 4;
             double textY = y - ft.Height / 2.0;
 
@@ -356,6 +275,7 @@ public sealed partial class CandleChartControl
         double rawStep = visibleRange / TargetTickCount;
         return GetNiceStep(rawStep);
     }
+
     private static double AlignPriceDown(double price, double step)
     {
         return Math.Floor(price / step) * step;
@@ -385,9 +305,9 @@ public sealed partial class CandleChartControl
             p += _yTickStepPrice;
         }
     }
+
     private static string FormatYAxisLabel(double price, double step)
     {
-        int stepUnit = 50000000;
         long raw = (long)Math.Round(price * PriceScale);
         string s = raw.ToString(CultureInfo.InvariantCulture);
 
@@ -399,31 +319,16 @@ public sealed partial class CandleChartControl
         string leftS = s.Substring(0, s.Length - (s.Length - 2));
         string leftXS = s.Substring(0, s.Length - (s.Length - 1));
 
-        string rightL = s.Substring(s.Length - 2);
         string rightM = s.Substring(s.Length - 4);
         string rightS = s.Substring(s.Length - 6);
         string rightXS = s.Substring(s.Length - 8);
 
-        //DebugMessage.Write($"{step}");
-
-        // zoom très large
         if (step >= 2000000000) return $"{leftL}";
-
-
-        // zoom très medium
         if (step >= 1000000000) return $"{leftM} -- {rightM.Substring(0, 2)}";
-
-        // zoom très small
         if (step >= 200000000) return $"{leftS} -- {rightS.Substring(0, 2)}";
 
-        //// zoom moyen → 2 chiffres de précision
-        //if (step >= 1)
-        //    return $"{leftL} -- {right.Substring(0, 2)}";
-
-        //// zoom proche → précision complète
         return $"{leftXS} -- {rightXS}";
     }
-
 
     private static double GetNiceStep(double rawStep)
     {

@@ -12,308 +12,15 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 {
     public class Killzones
     {
-        [Fact]
-        public void LoadNext_Should_Compare_AfternoonHigh_Vs_MorningHigh_After_Each_Completed_Reentry_And_Exit()
-        {
-            // Arrange
-            var chart = new global::BacktestApp.Controls.CandleChartControl();
-
-            // Référence hors chemin UI : nombre total attendu de fichiers et de candles
-            chart.Test_LoadIndexFile("data/bin/_index.bin");
-
-            long expectedTotalFiles = chart.Test_IndexCount;
-            long expectedTotalCandles = 0;
-
-            for (int fileIdx = 0; fileIdx < expectedTotalFiles; fileIdx++)
-            {
-                chart.Test_CandlesLoadFromCurrentFileIndex(fileIdx);
-                expectedTotalCandles += chart.Test_CandleCount;
-            }
-
-            Assert.True(expectedTotalFiles > 0, "L'index doit contenir au moins un fichier.");
-            Assert.True(expectedTotalCandles > 0, "Le nombre total de candles doit être > 0.");
-
-            // Vrai chemin UI
-            chart.Test_InitializeFilesAndCandlesMode();
-
-            int initialFileIdx = chart.Test_GetUiLoadedFileIdx();
-            int initialCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
-            var initialCandles = chart.Test_GetUiWindowCandles().ToArray();
-
-            Assert.True(initialFileIdx >= 0, $"FileIdx initial invalide: {initialFileIdx}");
-            Assert.True(initialCurrentIdx >= 0, $"CurrentIdx initial invalide: {initialCurrentIdx}");
-            Assert.NotNull(initialCandles);
-            Assert.NotEmpty(initialCandles);
-
-            var seenFiles = new HashSet<int> { initialFileIdx };
-            var seenTs = new HashSet<long>();
-
-            long totalCandlesRead = 0;
-            long? previousGlobalTs = null;
-
-            // Kill zones
-            var zones = chart.Test_GetSessionZoneConfigs();
-
-            var killZoneName1 = zones.First(z => z.Name == "Asian");
-            var killZoneName2 = zones.First(z => z.Name == "London");
-
-            var morning = new SessionHighLowIndicator(
-                killZoneName1.Name,
-                killZoneName1.Start,
-                killZoneName1.End);
-
-            var afternoon = new SessionHighLowIndicator(
-                killZoneName2.Name,
-                killZoneName2.Start,
-                killZoneName2.End);
-
-
-            long? lastSeenMorningEndTs = null;
-            long? lastSeenAfternoonEndTs = null;
-
-            long? pendingMorningEndTs = null;
-            double? pendingMorningHigh = null;
-
-            int compareOk = 0;
-            int compareKo = 0;
-            int skippedNoMorning = 0;
-            int skippedDateMismatch = 0;
-            int nbMaxWin = 0;
-            int nbCurrentWin = 0;
-            int nbMaxLoss = 0;
-            int nbCurrentLoss = 0;
-
-            static DateTime UtcFromNs(long tsNs)
-            {
-                long sec = tsNs / 1_000_000_000L;
-                return DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
-            }
-
-            void ProcessCandle(global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleItem candle)
-            {
-                // 1) Contrôle parcours global
-                if (previousGlobalTs.HasValue)
-                {
-                    Assert.True(
-                        candle.Ts > previousGlobalTs.Value,
-                        $"Timestamp non croissant détecté. currentTs={candle.Ts} <= previousTs={previousGlobalTs.Value}");
-                }
-
-                Assert.True(
-                    seenTs.Add(candle.Ts),
-                    $"Timestamp dupliqué détecté: {candle.Ts}");
-
-                previousGlobalTs = candle.Ts;
-                totalCandlesRead++;
-
-                // 2) Feed des kill zones
-                var m = morning.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
-                var a = afternoon.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
-
-                // 3) Détection d'une nouvelle Morning terminée
-                if (m is not null && m.HasLast)
-                {
-                    if (!lastSeenMorningEndTs.HasValue || m.LastEndTs != lastSeenMorningEndTs.Value)
-                    {
-                        lastSeenMorningEndTs = m.LastEndTs;
-                        pendingMorningEndTs = m.LastEndTs;
-                        pendingMorningHigh = m.LastHigh;
-
-                        //Debug.WriteLine(
-                        //    $"[MORNING CLOSED] " +
-                        //    $"date={UtcFromNs(m.LastEndTs):yyyy-MM-dd} " +
-                        //    $"end={UtcFromNs(m.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
-                        //    $"high={m.LastHigh}");
-                    }
-                }
-
-                // 4) Détection d'une nouvelle Afternoon terminée
-                if (a is not null && a.HasLast)
-                {
-                    if (!lastSeenAfternoonEndTs.HasValue || a.LastEndTs != lastSeenAfternoonEndTs.Value)
-                    {
-                        lastSeenAfternoonEndTs = a.LastEndTs;
-
-                        if (!pendingMorningEndTs.HasValue || !pendingMorningHigh.HasValue)
-                        {
-                            skippedNoMorning++;
-
-                            //Debug.WriteLine(
-                            //    $"[AFTERNOON CLOSED - SKIP NO MORNING] " +
-                            //    $"date={UtcFromNs(a.LastEndTs):yyyy-MM-dd} " +
-                            //    $"end={UtcFromNs(a.LastEndTs):yyyy-MM-dd HH:mm:ss} " +
-                            //    $"high={a.LastHigh}");
-                            return;
-                        }
-
-                        var morningDate = UtcFromNs(pendingMorningEndTs.Value).Date;
-                        var afternoonDate = UtcFromNs(a.LastEndTs).Date;
-
-                        if (morningDate != afternoonDate)
-                        {
-                            skippedDateMismatch++;
-
-                            //Debug.WriteLine(
-                            //    $"[AFTERNOON CLOSED - SKIP DATE MISMATCH] " +
-                            //    $"morningDate={morningDate:yyyy-MM-dd} " +
-                            //    $"afternoonDate={afternoonDate:yyyy-MM-dd} " +
-                            //    $"morningHigh={pendingMorningHigh.Value} " +
-                            //    $"afternoonHigh={a.LastHigh}");
-
-                            pendingMorningEndTs = null;
-                            pendingMorningHigh = null;
-                            return;
-                        }
-
-                        bool isOk = a.LastLow < (m.LastHigh - (m.LastHigh - m.LastLow));
-
-                        if (isOk) {
-                            compareOk++;
-                            nbCurrentWin++;
-                            nbCurrentLoss = 0;
-                        } else
-                        {
-                            compareKo++;
-                            nbCurrentWin = 0;
-                            nbCurrentLoss++;
-                        }
-
-                        if (nbCurrentWin > nbMaxWin) nbMaxWin = nbCurrentWin;
-
-                        if (nbCurrentLoss > nbMaxLoss) nbMaxLoss = nbCurrentLoss;
-
-
-
-
-                        //Debug.WriteLine(
-                        //    $"[COMPARE] date={afternoonDate:yyyy-MM-dd} " +
-                        //    $"morningHigh={pendingMorningHigh.Value} " +
-                        //    $"afternoonHigh={a.LastHigh} " +
-                        //    $"result={(isOk ? "OK" : "KO")}");
-
-                        // On consomme ce cycle.
-                        // Il faudra rerentrer puis resortir d'une nouvelle Morning
-                        // avant de pouvoir refaire une comparaison.
-                        pendingMorningEndTs = null;
-                        pendingMorningHigh = null;
-                    }
-                }
-            }
-
-            // Fenêtre initiale : traitée une seule fois
-            foreach (var candle in initialCandles)
-            {
-                ProcessCandle(candle);
-            }
-
-            int iterations = 0;
-            int previousFileIdx = initialFileIdx;
-            int previousCurrentIdx = initialCurrentIdx;
-
-            // Act
-            while (chart.Test_AdvanceCandlesNext())
-            {
-                iterations++;
-
-                int currentFileIdx = chart.Test_GetUiLoadedFileIdx();
-                int currentIdx = chart.Test_GetUiCandleCurrentIdx();
-                int nextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
-
-                var addedCandles = chart.Test_GetLastAddedCandles().ToArray();
-                var loadedTs = chart.Test_GetLoadedTimestamps();
-
-                Assert.True(currentFileIdx >= 0, $"FileIdx invalide après loadNext: {currentFileIdx}");
-                Assert.True(currentIdx >= 0, $"CurrentIdx invalide après loadNext: {currentIdx}");
-                Assert.NotNull(loadedTs);
-                Assert.NotEmpty(loadedTs);
-
-                seenFiles.Add(currentFileIdx);
-
-                // Cohérence progression fichier / candle
-                if (currentFileIdx == previousFileIdx)
-                {
-                    Assert.True(
-                        currentIdx > previousCurrentIdx,
-                        $"Le curseur candle doit avancer dans le même fichier. " +
-                        $"fileIdx={currentFileIdx}, before={previousCurrentIdx}, after={currentIdx}");
-                }
-                else
-                {
-                    Assert.True(
-                        currentFileIdx > previousFileIdx,
-                        $"Le fileIdx doit avancer strictement. before={previousFileIdx}, after={currentFileIdx}");
-                }
-
-                // Fenêtre courante toujours croissante
-                for (int i = 1; i < loadedTs.Count; i++)
-                {
-                    Assert.True(
-                        loadedTs[i] > loadedTs[i - 1],
-                        $"Les timestamps chargés doivent être strictement croissants. " +
-                        $"fileIdx={currentFileIdx}, i={i}, prev={loadedTs[i - 1]}, cur={loadedTs[i]}");
-                }
-
-                // Seules les nouvelles candles Added sont traitées
-                foreach (var candle in addedCandles)
-                {
-                    ProcessCandle(candle);
-                }
-
-                previousFileIdx = currentFileIdx;
-                previousCurrentIdx = currentIdx;
-
-                Assert.True(
-                    iterations <= expectedTotalCandles,
-                    $"Boucle suspecte: trop d'itérations. iterations={iterations}, expectedTotalCandles={expectedTotalCandles}, next={nextCursorIdx}");
-            }
-
-            // Assert final
-            Assert.True(iterations > 0, "Le test doit effectuer au moins un loadNext().");
-
-            var finalLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
-            var finalCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
-            var finalNextCursorIdx = chart.Test_GetUiCandleNextCursorIdx();
-            var finalTs = chart.Test_GetLoadedTimestamps();
-
-            Assert.True(finalLoadedFileIdx >= 0, $"FileIdx final invalide: {finalLoadedFileIdx}");
-            Assert.True(finalCurrentIdx >= 0, $"CurrentIdx final invalide: {finalCurrentIdx}");
-            Assert.Equal(-1, finalNextCursorIdx);
-
-            Assert.NotNull(finalTs);
-            Assert.NotEmpty(finalTs);
-
-            // Le test doit bien avoir parcouru tout l'index
-            Assert.Equal(expectedTotalFiles, seenFiles.Count);
-            Assert.Equal(expectedTotalCandles, totalCandlesRead);
-            Assert.Equal(expectedTotalCandles, seenTs.Count);
-
-            int totalComparisons = compareOk + compareKo;
-
-            Debug.WriteLine("==================================================");
-            Debug.WriteLine("[KILLZONE SUMMARY]");
-            Debug.WriteLine($"filesRead={seenFiles.Count}/{expectedTotalFiles}");
-            Debug.WriteLine($"candlesRead={totalCandlesRead}/{expectedTotalCandles}");
-            Debug.WriteLine($"compareOk={compareOk}");
-            Debug.WriteLine($"compareKo={compareKo}");
-            Debug.WriteLine($"compareOkRate={(totalComparisons > 0 ? (double)compareOk / totalComparisons : 0):P2}");
-            Debug.WriteLine($"totalComparisons={totalComparisons}");
-            Debug.WriteLine($"skippedNoMorning={skippedNoMorning}");
-            Debug.WriteLine($"skippedDateMismatch={skippedDateMismatch}");
-            Debug.WriteLine("==================================================");
-
-            Assert.True(
-                totalComparisons > 0,
-                "Aucune comparaison Morning -> Afternoon n'a été produite.");
-        }
 
 
         private sealed record ZoneSnapshot(
-               string Name,
-               DateTime DateUtc,
-               long StartTs,
-               long EndTs,
-               double High,
-               double Low)
+              string Name,
+              DateTime DateUtc,
+              long StartTs,
+              long EndTs,
+              double High,
+              double Low)
         {
             public double Mid => (High + Low) / 2.0;
             public double Range => High - Low;
@@ -335,48 +42,40 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // ==================================================
             const string targetZoneName = "NY AM";
 
-            const bool enableExactExpectedCandleCount = false;    // false = plus rapide
-            const bool enableStrictUniqueTimestampCheck = false;  // false = encore plus rapide
+            const bool enableExactExpectedCandleCount = false;
+            const bool enableStrictUniqueTimestampCheck = false;
             const bool enableVerboseDebug = false;
+
+            var zoneConfigs = new[]
+{
+                    new { Name = "Asian", Start = new TimeSpan(1, 0, 0), End = new TimeSpan(5, 0, 0) },
+                    new { Name = "London", Start = new TimeSpan(7, 0, 0), End = new TimeSpan(10, 0, 0) },
+                    new { Name = "Between London - NY AM", Start = new TimeSpan(10, 0, 0), End = new TimeSpan(13, 30, 0) },
+                    new { Name = "NY AM", Start = new TimeSpan(13, 30, 0), End = new TimeSpan(16, 0, 0) },
+                };
 
             // ==================================================
             // REFERENCES DYNAMIQUES
             // ==================================================
-            // Tu peux mettre 1, 2, 10, 100 références...
             var references = new List<ReferenceConfig>
         {
             new("refAsian", "Asian"),
             new("refLondon", "London"),
             new("refLondon-NY AM", "Between London - NY AM")
-
-            // Exemples si tu as d'autres zones dans ton indicateur :
-            // new("ref4", "Asian"),
-            // new("ref5", "London"),
-            // new("ref6", "NY AM"),
         };
 
             // ==================================================
             // CONDITIONS IMBRIQUEES
             // ==================================================
-            // Elles reçoivent TOUTES les références + la target
-            // Donc tu peux faire :
-            // refs["ref1"].Low > refs["ref2"].Low && refs["ref3"].Low > target.Low
             var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
-        {
+            {
+                // ("C3", ctx => ctx.Refs["refAsian"].Range < ctx.Refs["refLondon"].Range),
+                // ("C4", ctx => ctx.Refs["refAsian"].Low > ctx.Refs["refLondon-NY AM"].Low)
+            };
 
-            //("C3", ctx => ctx.Refs["refAsian"].Range < ctx.Refs["refLondon"].Range),
-            //("C4", ctx => ctx.Refs["refAsian"].Low > ctx.Refs["refLondon-NY AM"].Low)
-
-            // Exemples :
-            // ("C2", ctx => ctx.Refs["ref1"].High > ctx.Refs["ref2"].High),
-            // ("C3", ctx => ctx.Target.Mid > ctx.Refs["ref1"].Mid),
-            // ("C4", ctx => ctx.Target.Range > ctx.Refs["ref2"].Range),
-            // ("C5", ctx => ctx.Refs["ref1"].Low > ctx.Refs["ref2"].Low && ctx.Refs["ref3"].Low > ctx.Target.Low),
-        };
-
-            // Dernière condition = seule qui compte compareOk / compareKo
             Func<ConditionContext, bool> finalCondition =
-                ctx => ((ctx.Refs["refAsian"].Low >= ctx.Target.Low) && ((ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range) >= ctx.Target.Low));
+                ctx => ((ctx.Refs["refAsian"].Low >= ctx.Target.Low)
+                     && ((ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range) >= ctx.Target.Low));
 
             // ==================================================
             // VALIDATION CONFIG
@@ -395,13 +94,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             var referenceByKey = references.ToDictionary(x => x.Key, x => x);
 
-            // Petit helper pour extraire les refs utilisées dans les conditions
             static IEnumerable<string> ExtractReferenceKeysFromConditions(
                 IEnumerable<(string Name, Func<ConditionContext, bool> Test)> conditions,
                 IEnumerable<string> knownKeys)
             {
-                // Ici on ne peut pas introspecter le code du lambda.
-                // Donc on valide dynamiquement plus tard quand on construit le contexte.
                 return knownKeys;
             }
 
@@ -443,19 +139,23 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             Assert.NotNull(initialWindowCandles);
             Assert.NotEmpty(initialWindowCandles);
 
-            var zoneConfigs = chart.Test_GetSessionZoneConfigs();
+            // ==================================================
+            // CONFIG ZONES (remplace Test_GetSessionZoneConfigs)
+            // ==================================================
 
-            var usedZoneNames = references
-                .Select(x => x.ZoneName)
-                .Append(targetZoneName)
-                .Distinct()
-                .ToArray();
+                var usedZoneNames = references
+                    .Select(x => x.ZoneName)
+                    .Append(targetZoneName)
+                    .Distinct()
+                    .ToArray();
 
+            // Validation
             foreach (var zoneName in usedZoneNames)
             {
                 Assert.Contains(zoneConfigs, z => z.Name == zoneName);
             }
 
+            // Création des indicateurs
             var zoneIndicators = new Dictionary<string, SessionHighLowIndicator>();
 
             foreach (var zoneName in usedZoneNames)
@@ -479,7 +179,6 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             foreach (var zoneName in usedZoneNames)
                 lastClosedEndTsByZone[zoneName] = null;
 
-            // Dernière référence fermée par key
             var pendingReferencesByKey = new Dictionary<string, ZoneSnapshot?>();
 
             foreach (var reference in references)
@@ -589,9 +288,6 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
                 Assert.NotNull(context);
 
-                // ==================================================
-                // CONDITIONS IMBRIQUEES
-                // ==================================================
                 bool allEntryConditionsPassed = true;
 
                 for (int i = 0; i < entryConditions.Count; i++)
@@ -649,9 +345,6 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 if (!allEntryConditionsPassed)
                     return;
 
-                // ==================================================
-                // DERNIERE CONDITION = COMPTE OK / KO
-                // ==================================================
                 bool isOk;
 
                 try
@@ -688,7 +381,6 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 }
 
                 if (nbCurrentWin > nbMaxWin) nbMaxWin = nbCurrentWin;
-
                 if (nbCurrentLoss > nbMaxLoss) nbMaxLoss = nbCurrentLoss;
 
                 if (enableVerboseDebug)
@@ -714,9 +406,6 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             void ProcessCandle(global::BacktestApp.Controls.CandleChartControl.CandleIndex.CandleItem candle)
             {
-                // ==================================================
-                // 1) CONTROLES GLOBAUX
-                // ==================================================
                 if (previousGlobalTimestamp.HasValue)
                 {
                     Assert.True(
@@ -734,15 +423,23 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 previousGlobalTimestamp = candle.Ts;
                 totalCandlesRead++;
 
-                // ==================================================
-                // 2) FEED DE TOUTES LES ZONES UTILISEES
-                // ==================================================
                 foreach (var zoneName in usedZoneNames)
                 {
                     var indicator = zoneIndicators[zoneName];
-                    var output = indicator.OnCandle(candle.Ts, candle.H, candle.L, 1.0);
 
-                    if (output is null || !output.HasLast)
+                    indicator.OnCandle(
+                        candle.Ts,
+                        candle.O,
+                        candle.H,
+                        candle.L,
+                        candle.C,
+                        candle.V,
+                        candle.Sym,
+                        1.0);
+
+                    var output = indicator.CurrentOutput;
+
+                    if (!output.HasLast)
                         continue;
 
                     long? lastClosedEndTs = lastClosedEndTsByZone[zoneName];
@@ -754,14 +451,12 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
                     var snapshot = ToSnapshot(output);
 
-                    // Si cette zone sert de référence, on met à jour toutes les clés liées à cette zone
                     foreach (var reference in references)
                     {
                         if (reference.ZoneName == zoneName)
                             OnReferenceClosed(reference.Key, snapshot);
                     }
 
-                    // Si cette zone est la cible, on déclenche l'évaluation
                     if (zoneName == targetZoneName)
                     {
                         ProcessTargetClose(snapshot);

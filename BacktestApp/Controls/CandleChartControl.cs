@@ -7,10 +7,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using BacktestApp.Indicators;
-using BacktestApp.Indicators;
 using Avalonia.Media;
-using System.Collections.Generic;
 using static BacktestApp.Controls.DebugMessage;
+
+
 
 namespace BacktestApp.Controls;
 
@@ -26,104 +26,83 @@ namespace BacktestApp.Controls;
 public sealed partial class CandleChartControl : Control
 {
     // =========================
-    // Indocator KillZones
+    // Indicators (black-box)
     // =========================
-    private sealed record SessionZoneDefinition(
-        string Name,
-        TimeSpan Start,
-        TimeSpan End,
-        IBrush Fill,
-        Pen Border);
+    private readonly List<IGraphIndicator> _indicators = new();
 
-    private readonly List<SessionZoneDefinition> _sessionZoneDefinitions = new()
+    private void InitializeIndicators()
     {
-        new SessionZoneDefinition(
+        _indicators.Clear();
+
+        _indicators.Add(new SessionHighLowIndicator(
             "Asian",
             new TimeSpan(1, 0, 0),
             new TimeSpan(5, 0, 0),
-            new SolidColorBrush(Color.FromArgb(20, 255, 0, 0)), //bg
-            new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 0, 0)), 2)), //border
+            new SolidColorBrush(Color.FromArgb(20, 255, 0, 0)),
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 0, 0)), 2)));
 
-        new SessionZoneDefinition(
+        _indicators.Add(new SessionHighLowIndicator(
             "London",
             new TimeSpan(7, 0, 0),
             new TimeSpan(10, 0, 0),
             new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
-            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)),
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)));
 
-        new SessionZoneDefinition(
+        _indicators.Add(new SessionHighLowIndicator(
             "NY AM",
             new TimeSpan(13, 30, 0),
             new TimeSpan(16, 0, 0),
             new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
-            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)),
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)));
 
-                new SessionZoneDefinition(
+        _indicators.Add(new SessionHighLowIndicator(
             "Between London - NY AM",
             new TimeSpan(10, 0, 0),
             new TimeSpan(13, 30, 0),
             new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
-            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2))
-    };
-
-    private readonly List<SessionHighLowIndicator> _sessionIndicators = new();
-    private readonly List<SessionHighLowIndicator.Output?> _sessionOutputs = new();
-
-    private void InitializeSessionIndicators()
-    {
-        _sessionIndicators.Clear();
-        _sessionOutputs.Clear();
-
-        for (int i = 0; i < _sessionZoneDefinitions.Count; i++)
-        {
-            var def = _sessionZoneDefinitions[i];
-
-            _sessionIndicators.Add(new SessionHighLowIndicator(
-                def.Name,
-                def.Start,
-                def.End));
-
-            _sessionOutputs.Add(null);
-        }
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)));
     }
 
-    private void ResetSessionIndicators()
+    private void ResetIndicators()
     {
-        for (int i = 0; i < _sessionIndicators.Count; i++)
-        {
-            _sessionIndicators[i].Reset();
-            _sessionOutputs[i] = null;
-        }
+        for (int i = 0; i < _indicators.Count; i++)
+            _indicators[i].Reset();
     }
 
-    private void FeedSessionIndicators(long ts, long high, long low)
+    private void FeedIndicators(
+        long ts,
+        long open,
+        long high,
+        long low,
+        long close,
+        uint volume,
+        byte sym)
     {
-        for (int i = 0; i < _sessionIndicators.Count; i++)
+        for (int i = 0; i < _indicators.Count; i++)
         {
-            _sessionOutputs[i] = _sessionIndicators[i].OnCandle(
+            _indicators[i].OnCandle(
                 ts,
+                open,
                 high,
                 low,
+                close,
+                volume,
+                sym,
                 PriceScale);
         }
     }
 
-
-    private void DebugKillZones()
+    private void DrawIndicators(DrawingContext ctx, Rect plot)
     {
-        for (int i = 0; i < _sessionOutputs.Count; i++)
+        for (int i = 0; i < _indicators.Count; i++)
         {
-            var z = _sessionOutputs[i];
-            if (z == null)
-                continue;
-
-            DebugMessage.Write(
-                $"{z.Name} | " +
-                $"LAST H={z.LastHigh} L={z.LastLow} | " +
-                $"PREV H={z.PreviousHigh} L={z.PreviousLow}");
+            _indicators[i].Render(
+                ctx,
+                plot,
+                ts => WorldTimeToScreenX(TsNsToEpochSeconds(ts), plot),
+                price => PriceToY(price, plot));
         }
     }
-
 
     // =========================
     // Ring buffer
@@ -230,12 +209,12 @@ public sealed partial class CandleChartControl : Control
     private MmapCandleFile? _fM2, _fM1, _f0, _fP1, _fP2;
     private int _iM2 = -1, _iM1 = -1, _i0 = -1, _iP1 = -1, _iP2 = -1;
 
+
     public CandleChartControl()
     {
         Focusable = true;
-        InitializeSessionIndicators();
+        InitializeIndicators();
     }
-
 
     private uint[] _starts = Array.Empty<uint>();
     private uint[] _ends = Array.Empty<uint>();

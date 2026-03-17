@@ -1,8 +1,11 @@
-﻿using System;
+﻿using Avalonia;
+using Avalonia.Media;
+using System;
+using System.Globalization;
 
 namespace BacktestApp.Indicators;
 
-public sealed class SessionHighLowIndicator
+public sealed class SessionHighLowIndicator : IGraphIndicator
 {
     public enum SessionState
     {
@@ -28,6 +31,8 @@ public sealed class SessionHighLowIndicator
     private readonly string _name;
     private readonly TimeSpan _startTime;
     private readonly TimeSpan _endTime;
+    private readonly IBrush _fill;
+    private readonly Pen _border;
 
     private SessionState _state = SessionState.Out;
 
@@ -51,7 +56,29 @@ public sealed class SessionHighLowIndicator
 
     public string Name => _name;
 
-    public SessionHighLowIndicator(string name, TimeSpan startTime, TimeSpan endTime)
+    public Output CurrentOutput =>
+        new Output(
+            _name,
+            _state,
+            _hasPrevious,
+            _previousHigh,
+            _previousLow,
+            _previousStartTs,
+            _previousEndTs,
+            _hasLast,
+            _lastHigh,
+            _lastLow,
+            _lastStartTs,
+            _lastEndTs
+        );
+
+    // constructeur UI
+    public SessionHighLowIndicator(
+        string name,
+        TimeSpan startTime,
+        TimeSpan endTime,
+        IBrush fill,
+        Pen border)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("name vide", nameof(name));
@@ -62,6 +89,22 @@ public sealed class SessionHighLowIndicator
         _name = name;
         _startTime = startTime;
         _endTime = endTime;
+        _fill = fill ?? throw new ArgumentNullException(nameof(fill));
+        _border = border ?? throw new ArgumentNullException(nameof(border));
+    }
+
+    // constructeur test / backtest
+    public SessionHighLowIndicator(
+        string name,
+        TimeSpan startTime,
+        TimeSpan endTime)
+        : this(
+            name,
+            startTime,
+            endTime,
+            new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)),
+            new Pen(new SolidColorBrush(Color.FromArgb(0, 255, 255, 255)), 1))
+    {
     }
 
     public void Reset()
@@ -87,7 +130,15 @@ public sealed class SessionHighLowIndicator
         _previousEndTs = 0;
     }
 
-    public Output OnCandle(long ts, long high, long low, double priceScale)
+    public void OnCandle(
+        long ts,
+        long open,
+        long high,
+        long low,
+        long close,
+        uint volume,
+        byte sym,
+        double priceScale)
     {
         long sec = ts / 1_000_000_000L;
         var dt = DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
@@ -146,21 +197,47 @@ public sealed class SessionHighLowIndicator
                 _currentEndTs = 0;
             }
         }
+    }
 
-        return new Output(
+    public void Render(
+        DrawingContext ctx,
+        Rect plot,
+        Func<long, double> tsToX,
+        Func<double, double> priceToY)
+    {
+        if (!_hasLast)
+            return;
+
+        double x1 = tsToX(_lastStartTs);
+        double x2 = tsToX(_lastEndTs);
+
+        double yHigh = priceToY(_lastHigh);
+        double yLow = priceToY(_lastLow);
+
+        double left = Math.Min(x1, x2);
+        double width = Math.Abs(x2 - x1);
+
+        double top = Math.Min(yHigh, yLow);
+        double height = Math.Abs(yLow - yHigh);
+
+        if (width <= 0 || height <= 0)
+            return;
+
+        var rect = new Rect(left, top, width, height);
+        ctx.DrawRectangle(_fill, _border, rect);
+
+        var ft = new FormattedText(
             _name,
-            _state,
-            _hasPrevious,
-            _previousHigh,
-            _previousLow,
-            _previousStartTs,
-            _previousEndTs,
-            _hasLast,
-            _lastHigh,
-            _lastLow,
-            _lastStartTs,
-            _lastEndTs
-        );
+            CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"),
+            12,
+            _border.Brush);
+
+        double textX = left + width * 0.5 - ft.Width / 2.0;
+        double textY = top + 4.0;
+
+        ctx.DrawText(ft, new Point(textX, textY));
     }
 
     private bool IsInSession(TimeSpan t)
