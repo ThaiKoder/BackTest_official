@@ -69,13 +69,14 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // ==================================================
             var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
             {
+                ("C1", ctx => ctx.Refs["refAsian"].Range < (ctx.Refs["refLondon"].Range/100*60)),
+                ("C2", ctx => ctx.Refs["refAsian"].Range > (ctx.Refs["refLondon"].Range/100*30)),
                 // ("C3", ctx => ctx.Refs["refAsian"].Range < ctx.Refs["refLondon"].Range),
                 // ("C4", ctx => ctx.Refs["refAsian"].Low > ctx.Refs["refLondon-NY AM"].Low)
             };
 
             Func<ConditionContext, bool> finalCondition =
-                ctx => ((ctx.Refs["refAsian"].Low >= ctx.Target.Low)
-                     && ((ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range) >= ctx.Target.Low));
+               ctx => ((ctx.Refs["refLondon"].Range * 1) < ctx.Target.Range);
 
             // ==================================================
             // VALIDATION CONFIG
