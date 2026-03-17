@@ -7,15 +7,18 @@ using System;
 using System.Diagnostics;
 using BacktestApp.Controls;
 
-
 namespace BacktestApp.Controls;
-
 
 public sealed partial class CandleChartControl
 {
     // Hover state (évite spam Debug)
     private int _hoverLocalIndex = -1;
 
+    // =========================
+    // Crosshair / souris
+    // =========================
+    private bool _hasMouseInPlot;
+    private Point _mousePlotPosition;
 
     // =========================
     // Pointer interaction
@@ -29,6 +32,10 @@ public sealed partial class CandleChartControl
 
         var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
         var p = e.GetPosition(this);
+
+        // met à jour le crosshair immédiatement
+        _hasMouseInPlot = plot.Contains(p);
+        _mousePlotPosition = p;
 
         bool inYAxis = p.X < plot.Left && p.Y >= plot.Top && p.Y <= plot.Bottom;
 
@@ -50,7 +57,6 @@ public sealed partial class CandleChartControl
         e.Handled = true;
     }
 
-
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
@@ -58,9 +64,17 @@ public sealed partial class CandleChartControl
         _isPanning = false;
         _isZoomingY = false;
         e.Pointer.Capture(null);
+
+        var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
+        var p = e.GetPosition(this);
+
+        _hasMouseInPlot = plot.Contains(p);
+        _mousePlotPosition = p;
+
+        InvalidateVisual();
+
         e.Handled = true;
     }
-
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
@@ -71,11 +85,21 @@ public sealed partial class CandleChartControl
         var plot = GetPlotRect(new Rect(0, 0, Bounds.Width, Bounds.Height));
         var p = e.GetPosition(this);
 
+        // Mise à jour crosshair
+        bool wasInPlot = _hasMouseInPlot;
+        _hasMouseInPlot = plot.Contains(p);
+        _mousePlotPosition = p;
+
         // --- Hover quand on ne pan/zoom pas ---
         if (!_isPanning && !_isZoomingY)
         {
             int hit = HitTestCandleLocalIndex(p, plot);
             DebugHoverCandleIfChanged(hit);
+
+            // redraw si entrée/sortie ou déplacement dans le plot
+            if (_hasMouseInPlot || wasInPlot != _hasMouseInPlot)
+                InvalidateVisual();
+
             return;
         }
 
@@ -108,6 +132,14 @@ public sealed partial class CandleChartControl
         e.Handled = true;
     }
 
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+
+        _hasMouseInPlot = false;
+        _hoverLocalIndex = -1;
+        InvalidateVisual();
+    }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
@@ -119,6 +151,10 @@ public sealed partial class CandleChartControl
         if (plot.Width <= 0 || plot.Height <= 0) return;
 
         var mouse = e.GetPosition(this);
+
+        _hasMouseInPlot = plot.Contains(mouse);
+        _mousePlotPosition = mouse;
+
         var anchor = plot.Contains(mouse)
             ? mouse
             : new Point(plot.Left + plot.Width / 2, plot.Top + plot.Height / 2);
@@ -138,7 +174,6 @@ public sealed partial class CandleChartControl
         InvalidateVisual();
         e.Handled = true;
     }
-
 
     private int HitTestCandleLocalIndex(Point mouse, Rect plot)
     {
@@ -168,7 +203,6 @@ public sealed partial class CandleChartControl
         return -1;
     }
 
-
     private void DebugHoverCandleIfChanged(int newHoverIndex)
     {
         if (newHoverIndex == _hoverLocalIndex) return; // pas de spam
@@ -190,18 +224,13 @@ public sealed partial class CandleChartControl
         DebugMessage.Write($"[HOVER] i={newHoverIndex} " +
             $"date(UTC)={FormatTsUtc(ts)} " +
             $"O={o} H={h} L={l} C={c} V={v} Sym={sym}");
-
     }
-
 
     private static string FormatTsUtc(long tsNs)
     {
         long sec = tsNs / 1_000_000_000L;
         long nsRemainder = tsNs - sec * 1_000_000_000L;
         var dto = DateTimeOffset.FromUnixTimeSeconds(sec).ToUniversalTime();
-        // Si tu veux inclure les ms : dto.ToString("yyyy-MM-dd HH:mm:ss.fff", ...)
         return $"{dto:yyyy-MM-dd HH:mm:ss} (+{nsRemainder}ns)";
     }
-
-
 }

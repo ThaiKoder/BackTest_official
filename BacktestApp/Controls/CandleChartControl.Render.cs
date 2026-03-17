@@ -31,6 +31,13 @@ public sealed partial class CandleChartControl
     private static readonly IBrush DownBrush =
         new SolidColorBrush(Color.FromRgb(0xE0, 0x5A, 0x5A));
 
+    // Crosshair pointillé
+    private static readonly Pen CrosshairPen =
+        new Pen(
+            new SolidColorBrush(Color.FromArgb(180, 220, 220, 220)),
+            1,
+            dashStyle: new DashStyle(new double[] { 6, 6 }, 0));
+
     private static readonly double[] NicePriceSteps =
     {
         0.0001, 0.0002, 0.0005,
@@ -115,6 +122,9 @@ public sealed partial class CandleChartControl
 
             // IMPORTANT : les killzones sont dessinées ici
             DrawIndicators(ctx, plot);
+
+            // Crosshair souris
+            DrawMouseCrosshair(ctx, plot);
         }
 
         UpdateYAxisTicks(plot);
@@ -138,6 +148,18 @@ public sealed partial class CandleChartControl
         {
             DrawXAxisSimple(ctx, plot, AxisPen, LabelBrush);
         }
+    }
+
+    private void DrawMouseCrosshair(DrawingContext ctx, Rect plot)
+    {
+        if (!_hasMouseInPlot)
+            return;
+
+        double x = Clamp(_mousePlotPosition.X, plot.Left, plot.Right);
+        double y = Clamp(_mousePlotPosition.Y, plot.Top, plot.Bottom);
+
+        ctx.DrawLine(CrosshairPen, new Point(x, plot.Top), new Point(x, plot.Bottom));
+        ctx.DrawLine(CrosshairPen, new Point(plot.Left, y), new Point(plot.Right, y));
     }
 
     private int GetXAxisStepSeconds()
