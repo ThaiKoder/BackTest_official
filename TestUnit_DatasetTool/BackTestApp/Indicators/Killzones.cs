@@ -608,13 +608,23 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             public SweepSide SweptSide { get; set; } = SweepSide.None;
 
             public long SweepTs { get; set; }
-            public long IfvgAnchorTs { get; set; }
             public bool? ExpectedIfvgBullish { get; set; }
 
+            public long IfvgAnchorTs { get; set; }
             public double IfvgLow { get; set; }
             public double IfvgHigh { get; set; }
-
             public long IfvgTouchTs { get; set; }
+
+            // SL = extrême formé entre le sweep et le first IFVG
+            public bool HasTrackedExtreme { get; set; }
+            public double TrackedExtremePrice { get; set; }
+            public long TrackedExtremeTs { get; set; }
+
+            public bool HasStopLoss { get; set; }
+            public double StopLossPrice { get; set; }
+            public long StopLossTs { get; set; }
+            public long StopLossHitTs { get; set; }
+
             public long OppositeExtremeTouchTs { get; set; }
 
             public string FailureReason { get; set; } = string.Empty;
@@ -664,6 +674,24 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             int ifvgTouchedCount = 0;
             int successCount = 0;
             int failureCount = 0;
+            int stopLossFailureCount = 0;
+            int unresolvedFailureCount = 0;
+            int ambiguousFailureCount = 0;
+            int replacedByNextSessionFailureCount = 0;
+
+            int currentWinStreak = 0;
+            int currentFailStreak = 0;
+            int maxWinStreak = 0;
+            int maxFailStreak = 0;
+
+            var weekdayWins = new Dictionary<DayOfWeek, int>();
+            var weekdayFails = new Dictionary<DayOfWeek, int>();
+
+            foreach (DayOfWeek day in Enum.GetValues(typeof(DayOfWeek)))
+            {
+                weekdayWins[day] = 0;
+                weekdayFails[day] = 0;
+            }
 
             int loadedFileSwitchCount = 0;
             int lastLoadedFileIdx = -1;
@@ -690,6 +718,46 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 return h >= zoneLow && l <= zoneHigh;
             }
 
+            static string FormatWeekdayWinRate(int wins, int fails)
+            {
+                int total = wins + fails;
+                double rate = total > 0 ? (double)wins / total : 0.0;
+                return $"{wins}/{total} ({rate:P2})";
+            }
+
+            void RegisterSuccess(ActiveSilverBulletSetup setup)
+            {
+                successCount++;
+                weekdayWins[setup.SessionDateUtc.DayOfWeek]++;
+
+                currentWinStreak++;
+                currentFailStreak = 0;
+
+                if (currentWinStreak > maxWinStreak)
+                    maxWinStreak = currentWinStreak;
+            }
+
+            void RegisterFailure(ActiveSilverBulletSetup setup, string reason)
+            {
+                failureCount++;
+                weekdayFails[setup.SessionDateUtc.DayOfWeek]++;
+
+                currentFailStreak++;
+                currentWinStreak = 0;
+
+                if (currentFailStreak > maxFailStreak)
+                    maxFailStreak = currentFailStreak;
+
+                if (reason.StartsWith("SL", StringComparison.OrdinalIgnoreCase))
+                    stopLossFailureCount++;
+                else if (reason.StartsWith("Fin des données", StringComparison.OrdinalIgnoreCase))
+                    unresolvedFailureCount++;
+                else if (reason.StartsWith("Même candle", StringComparison.OrdinalIgnoreCase))
+                    ambiguousFailureCount++;
+                else if (reason.StartsWith("Nouvelle Silver Bullet", StringComparison.OrdinalIgnoreCase))
+                    replacedByNextSessionFailureCount++;
+            }
+
             void FinalizeFailure(ActiveSilverBulletSetup setup, string reason)
             {
                 if (setup.Phase == SetupPhase.Done || setup.Phase == SetupPhase.Failed)
@@ -697,13 +765,17 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
                 setup.Phase = SetupPhase.Failed;
                 setup.FailureReason = reason;
-                failureCount++;
+
+                RegisterFailure(setup, reason);
 
                 string summary =
-                    $"[FAIL] day={setup.SessionDateUtc:yyyy-MM-dd} " +
+                    $"[FAIL] day={setup.SessionDateUtc:yyyy-MM-dd} ({setup.SessionDateUtc:dddd}) " +
                     $"SB[{FmtTs(setup.SessionStartTs)} -> {FmtTs(setup.SessionEndTs)}] " +
                     $"high={setup.SessionHigh} low={setup.SessionLow} " +
                     $"swept={setup.SweptSide} " +
+                    $"sweepTs={(setup.SweepTs != 0 ? FmtTs(setup.SweepTs) : "n/a")} " +
+                    $"ifvgAnchor={(setup.IfvgAnchorTs != 0 ? FmtTs(setup.IfvgAnchorTs) : "n/a")} " +
+                    $"sl={(setup.HasStopLoss ? setup.StopLossPrice.ToString() : "n/a")} " +
                     $"reason={reason}";
 
                 detectedSummaries.Add(summary);
@@ -718,16 +790,18 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                     return;
 
                 setup.Phase = SetupPhase.Done;
-                successCount++;
+
+                RegisterSuccess(setup);
 
                 string summary =
-                    $"[OK] day={setup.SessionDateUtc:yyyy-MM-dd} " +
+                    $"[OK] day={setup.SessionDateUtc:yyyy-MM-dd} ({setup.SessionDateUtc:dddd}) " +
                     $"SB[{FmtTs(setup.SessionStartTs)} -> {FmtTs(setup.SessionEndTs)}] " +
                     $"high={setup.SessionHigh} low={setup.SessionLow} " +
                     $"swept={setup.SweptSide} sweepTs={FmtTs(setup.SweepTs)} " +
                     $"ifvg=[{setup.IfvgLow} -> {setup.IfvgHigh}] anchor={FmtTs(setup.IfvgAnchorTs)} " +
                     $"ifvgTouchTs={FmtTs(setup.IfvgTouchTs)} " +
-                    $"oppositeTouchTs={FmtTs(setup.OppositeExtremeTouchTs)}";
+                    $"sl={(setup.HasStopLoss ? setup.StopLossPrice.ToString() : "n/a")} " +
+                    $"tpTs={FmtTs(setup.OppositeExtremeTouchTs)}";
 
                 detectedSummaries.Add(summary);
 
@@ -775,14 +849,16 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                     if (enableVerboseDebug)
                     {
                         Debug.WriteLine(
-                            $"[SB CLOSED] day={active.SessionDateUtc:yyyy-MM-dd} " +
+                            $"[SB CLOSED] day={active.SessionDateUtc:yyyy-MM-dd} ({active.SessionDateUtc:dddd}) " +
                             $"start={FmtTs(active.SessionStartTs)} end={FmtTs(active.SessionEndTs)} " +
                             $"high={active.SessionHigh} low={active.SessionLow}");
                     }
                 }
 
-                // 3) traiter les nouveaux FVG créés par cette candle
+                // 3) récupérer le premier nouveau FVG compatible si on est en attente de création
+                FvgIndicator.FvgZone? matchedNewIfvg = null;
                 var zones = fvg.Zones;
+
                 if (lastProcessedFvgCount < zones.Count)
                 {
                     for (int i = lastProcessedFvgCount; i < zones.Count; i++)
@@ -802,23 +878,8 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         if (z.IsBullish != expectedBullish)
                             continue;
 
-                        active.IfvgAnchorTs = z.AnchorTs;
-                        active.IfvgLow = z.Low;
-                        active.IfvgHigh = z.High;
-                        active.Phase = SetupPhase.WaitingIfvgTouch;
-
-                        ifvgCreatedCount++;
-
-                        if (enableVerboseDebug)
-                        {
-                            Debug.WriteLine(
-                                $"[IFVG CREATED] day={active.SessionDateUtc:yyyy-MM-dd} " +
-                                $"expectedBullish={expectedBullish} " +
-                                $"anchor={FmtTs(active.IfvgAnchorTs)} " +
-                                $"zone=[{active.IfvgLow} -> {active.IfvgHigh}]");
-                        }
-
-                        break; // premier IFVG seulement
+                        matchedNewIfvg = z;
+                        break;
                     }
 
                     lastProcessedFvgCount = zones.Count;
@@ -850,6 +911,11 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         active.SweepTs = ts;
                         active.ExpectedIfvgBullish = false; // après prise du high, on attend un IFVG bearish
                         active.Phase = SetupPhase.WaitingIfvgCreation;
+
+                        active.HasTrackedExtreme = true;
+                        active.TrackedExtremePrice = high;
+                        active.TrackedExtremeTs = ts;
+
                         sweepDetectedCount++;
 
                         if (enableVerboseDebug)
@@ -868,6 +934,11 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         active.SweepTs = ts;
                         active.ExpectedIfvgBullish = true; // après prise du low, on attend un IFVG bullish
                         active.Phase = SetupPhase.WaitingIfvgCreation;
+
+                        active.HasTrackedExtreme = true;
+                        active.TrackedExtremePrice = low;
+                        active.TrackedExtremeTs = ts;
+
                         sweepDetectedCount++;
 
                         if (enableVerboseDebug)
@@ -883,7 +954,59 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                     return;
                 }
 
-                // ---- Phase 2 : IFVG déjà créé, attendre retour dans la zone
+                // ---- Phase 2 : attendre la création du first IFVG + tracker l'extrême du futur SL
+                if (active.Phase == SetupPhase.WaitingIfvgCreation)
+                {
+                    if (active.SweptSide == SweepSide.High)
+                    {
+                        if (!active.HasTrackedExtreme || high > active.TrackedExtremePrice)
+                        {
+                            active.HasTrackedExtreme = true;
+                            active.TrackedExtremePrice = high;
+                            active.TrackedExtremeTs = ts;
+                        }
+                    }
+                    else if (active.SweptSide == SweepSide.Low)
+                    {
+                        if (!active.HasTrackedExtreme || low < active.TrackedExtremePrice)
+                        {
+                            active.HasTrackedExtreme = true;
+                            active.TrackedExtremePrice = low;
+                            active.TrackedExtremeTs = ts;
+                        }
+                    }
+
+                    if (matchedNewIfvg is not null)
+                    {
+                        active.IfvgAnchorTs = matchedNewIfvg.AnchorTs;
+                        active.IfvgLow = matchedNewIfvg.Low;
+                        active.IfvgHigh = matchedNewIfvg.High;
+
+                        if (active.HasTrackedExtreme)
+                        {
+                            active.HasStopLoss = true;
+                            active.StopLossPrice = active.TrackedExtremePrice;
+                            active.StopLossTs = active.TrackedExtremeTs;
+                        }
+
+                        active.Phase = SetupPhase.WaitingIfvgTouch;
+                        ifvgCreatedCount++;
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[IFVG CREATED] day={active.SessionDateUtc:yyyy-MM-dd} " +
+                                $"expectedBullish={active.ExpectedIfvgBullish} " +
+                                $"anchor={FmtTs(active.IfvgAnchorTs)} " +
+                                $"zone=[{active.IfvgLow} -> {active.IfvgHigh}] " +
+                                $"sl={(active.HasStopLoss ? active.StopLossPrice.ToString() : "n/a")}");
+                        }
+                    }
+
+                    return;
+                }
+
+                // ---- Phase 3 : IFVG créé, attendre retour dans la zone
                 if (active.Phase == SetupPhase.WaitingIfvgTouch)
                 {
                     if (CandleTouchesZone(high, low, active.IfvgLow, active.IfvgHigh))
@@ -903,9 +1026,35 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                     return;
                 }
 
-                // ---- Phase 3 : après retour IFVG, attendre l'autre extrémité SB
+                // ---- Phase 4 : après retour IFVG, SL d'abord = FAIL, TP ensuite = SUCCESS
                 if (active.Phase == SetupPhase.WaitingOppositeExtremeTouch)
                 {
+                    // SL = FAIL (même ordre que l'indicateur)
+                    if (active.HasStopLoss)
+                    {
+                        if (active.SweptSide == SweepSide.High)
+                        {
+                            // setup vendeur : SL au-dessus
+                            if (high >= active.StopLossPrice)
+                            {
+                                active.StopLossHitTs = ts;
+                                FinalizeFailure(active, $"SL touché à {FmtTs(ts)}");
+                                return;
+                            }
+                        }
+                        else if (active.SweptSide == SweepSide.Low)
+                        {
+                            // setup acheteur : SL en-dessous
+                            if (low <= active.StopLossPrice)
+                            {
+                                active.StopLossHitTs = ts;
+                                FinalizeFailure(active, $"SL touché à {FmtTs(ts)}");
+                                return;
+                            }
+                        }
+                    }
+
+                    // TP = SUCCESS
                     if (active.SweptSide == SweepSide.High)
                     {
                         if (low <= active.SessionLow)
@@ -992,18 +1141,37 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // ==================================================
             // DEBUG FINAL
             // ==================================================
+            int resolvedCount = successCount + failureCount;
+            double globalWinRate = resolvedCount > 0 ? (double)successCount / resolvedCount : 0.0;
+
             Debug.WriteLine("==================================================");
-            Debug.WriteLine("SILVER BULLET -> SWEEP -> FIRST IFVG -> TOUCH IFVG -> OTHER EXTREME");
+            Debug.WriteLine("SILVER BULLET -> SWEEP -> FIRST IFVG -> TOUCH IFVG -> TP/SL");
             Debug.WriteLine("==================================================");
-            Debug.WriteLine($"Files loaded           : {loadedFileSwitchCount}");
-            Debug.WriteLine($"Steps processed        : {totalSteps}");
-            Debug.WriteLine($"Candles processed      : {totalCandlesProcessed}");
-            Debug.WriteLine($"SB sessions closed     : {totalSessionsClosed}");
-            Debug.WriteLine($"Sweeps detected        : {sweepDetectedCount}");
-            Debug.WriteLine($"IFVG created           : {ifvgCreatedCount}");
-            Debug.WriteLine($"IFVG touched           : {ifvgTouchedCount}");
-            Debug.WriteLine($"Success count          : {successCount}");
-            Debug.WriteLine($"Failure count          : {failureCount}");
+            Debug.WriteLine($"Files loaded                 : {loadedFileSwitchCount}");
+            Debug.WriteLine($"Steps processed              : {totalSteps}");
+            Debug.WriteLine($"Candles processed            : {totalCandlesProcessed}");
+            Debug.WriteLine($"SB sessions closed           : {totalSessionsClosed}");
+            Debug.WriteLine($"Sweeps detected              : {sweepDetectedCount}");
+            Debug.WriteLine($"IFVG created                 : {ifvgCreatedCount}");
+            Debug.WriteLine($"IFVG touched                 : {ifvgTouchedCount}");
+            Debug.WriteLine($"Success count                : {successCount}");
+            Debug.WriteLine($"Failure count                : {failureCount}");
+            Debug.WriteLine($"Global win rate              : {globalWinRate:P2}");
+            Debug.WriteLine($"SL failure count             : {stopLossFailureCount}");
+            Debug.WriteLine($"Unresolved failure count     : {unresolvedFailureCount}");
+            Debug.WriteLine($"Ambiguous failure count      : {ambiguousFailureCount}");
+            Debug.WriteLine($"Next session failure count   : {replacedByNextSessionFailureCount}");
+            Debug.WriteLine($"Max consecutive wins         : {maxWinStreak}");
+            Debug.WriteLine($"Max consecutive fails        : {maxFailStreak}");
+            Debug.WriteLine("--------------------------------------------------");
+            Debug.WriteLine("WIN RATE PAR JOUR");
+            Debug.WriteLine($"Monday    : {FormatWeekdayWinRate(weekdayWins[DayOfWeek.Monday], weekdayFails[DayOfWeek.Monday])}");
+            Debug.WriteLine($"Tuesday   : {FormatWeekdayWinRate(weekdayWins[DayOfWeek.Tuesday], weekdayFails[DayOfWeek.Tuesday])}");
+            Debug.WriteLine($"Wednesday : {FormatWeekdayWinRate(weekdayWins[DayOfWeek.Wednesday], weekdayFails[DayOfWeek.Wednesday])}");
+            Debug.WriteLine($"Thursday  : {FormatWeekdayWinRate(weekdayWins[DayOfWeek.Thursday], weekdayFails[DayOfWeek.Thursday])}");
+            Debug.WriteLine($"Friday    : {FormatWeekdayWinRate(weekdayWins[DayOfWeek.Friday], weekdayFails[DayOfWeek.Friday])}");
+            Debug.WriteLine($"Saturday  : {FormatWeekdayWinRate(weekdayWins[DayOfWeek.Saturday], weekdayFails[DayOfWeek.Saturday])}");
+            Debug.WriteLine($"Sunday    : {FormatWeekdayWinRate(weekdayWins[DayOfWeek.Sunday], weekdayFails[DayOfWeek.Sunday])}");
             Debug.WriteLine("==================================================");
 
             foreach (var line in detectedSummaries)
@@ -1014,7 +1182,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // ==================================================
             Assert.True(totalCandlesProcessed > 0, "Aucune candle parcourue.");
             Assert.True(totalSessionsClosed > 0, "Aucune session Silver Bullet clôturée détectée.");
-            Assert.True(successCount + failureCount > 0, "Aucun setup Silver Bullet analysé.");
+            Assert.True(resolvedCount > 0, "Aucun setup Silver Bullet résolu.");
+            Assert.Equal(resolvedCount, weekdayWins.Values.Sum() + weekdayFails.Values.Sum());
+            Assert.True(maxWinStreak <= resolvedCount, "maxWinStreak invalide.");
+            Assert.True(maxFailStreak <= resolvedCount, "maxFailStreak invalide.");
         }
     }
 }

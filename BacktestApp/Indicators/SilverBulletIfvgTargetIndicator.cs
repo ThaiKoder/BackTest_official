@@ -56,11 +56,26 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
         public FvgZone? FirstIfvg;
         public long IfvgTouchTs;
 
+        // Stop loss = extrémité formée entre fin de session et premier IFVG
+        public bool HasStopLoss;
+        public double StopLossPrice;
+        public long StopLossTs;
+        public long StopLossStartTs;
+        public long StopLossEndTs;
+
+        // Extrême temporaire pendant l'attente du first IFVG
+        public bool HasTrackedExtreme;
+        public double TrackedExtremePrice;
+        public long TrackedExtremeTs;
+
         public double TargetPrice;
         public long TargetStartTs;
         public long TargetEndTs;
         public bool TargetReached;
         public long TargetReachedTs;
+
+        public bool StopLossHit;
+        public long StopLossHitTs;
     }
 
     private readonly string _name;
@@ -80,6 +95,9 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
     private readonly IBrush _targetFill;
     private readonly Pen _targetBorder;
 
+    private readonly IBrush _slFill;
+    private readonly Pen _slBorder;
+
     private Candle? _c1;
     private Candle? _c2;
 
@@ -89,15 +107,13 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
     private double _currentSessionHigh;
     private double _currentSessionLow;
 
-    private SessionSnapshot? _lastClosedSession;
-    private long _lastClosedSessionEndTs;
-
     private readonly List<Setup> _setups = new();
     private Setup? _activeSetup;
 
     private const long OneMinuteNs = 60L * 1_000_000_000L;
     private const int FvgProjectionCandles = 20;
     private const int TargetProjectionCandles = 30;
+    private const int SlProjectionCandles = 30;
 
     public string Name => _name;
 
@@ -112,7 +128,9 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
         IBrush? bearIfvgFill = null,
         Pen? bearIfvgBorder = null,
         IBrush? targetFill = null,
-        Pen? targetBorder = null)
+        Pen? targetBorder = null,
+        IBrush? slFill = null,
+        Pen? slBorder = null)
     {
         _name = string.IsNullOrWhiteSpace(name) ? "Silver Bullet IFVG Target" : name;
 
@@ -130,6 +148,9 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
 
         _targetFill = targetFill ?? new SolidColorBrush(Color.FromArgb(25, 255, 215, 0));
         _targetBorder = targetBorder ?? new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 215, 0)), 2);
+
+        _slFill = slFill ?? new SolidColorBrush(Color.FromArgb(25, 255, 255, 255));
+        _slBorder = slBorder ?? new Pen(new SolidColorBrush(Color.FromArgb(255, 255, 255, 255)), 2);
     }
 
     public void Reset()
@@ -142,9 +163,6 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
         _currentSessionEndTs = 0;
         _currentSessionHigh = 0;
         _currentSessionLow = 0;
-
-        _lastClosedSession = null;
-        _lastClosedSessionEndTs = 0;
 
         _activeSetup = null;
         _setups.Clear();
@@ -211,17 +229,15 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
 
         if (_sessionActive)
         {
-            _lastClosedSession = new SessionSnapshot(
+            var closedSession = new SessionSnapshot(
                 _currentSessionStartTs,
                 _currentSessionEndTs,
                 _currentSessionHigh,
                 _currentSessionLow);
 
-            _lastClosedSessionEndTs = _currentSessionEndTs;
-
             _activeSetup = new Setup
             {
-                Session = _lastClosedSession,
+                Session = closedSession,
                 Phase = SetupPhase.WaitingSweep
             };
 
@@ -240,6 +256,9 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
         if (_activeSetup is null)
             return;
 
+        if (_activeSetup.Phase == SetupPhase.Done)
+            return;
+
         if (current.Ts <= _activeSetup.Session.EndTs)
             return;
 
@@ -253,6 +272,10 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
                 _activeSetup.SweptSide = SweepSide.High;
                 _activeSetup.SweepTs = current.Ts;
                 _activeSetup.Phase = SetupPhase.WaitingIfvg;
+
+                _activeSetup.HasTrackedExtreme = true;
+                _activeSetup.TrackedExtremePrice = current.High;
+                _activeSetup.TrackedExtremeTs = current.Ts;
                 return;
             }
 
@@ -261,6 +284,10 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
                 _activeSetup.SweptSide = SweepSide.Low;
                 _activeSetup.SweepTs = current.Ts;
                 _activeSetup.Phase = SetupPhase.WaitingIfvg;
+
+                _activeSetup.HasTrackedExtreme = true;
+                _activeSetup.TrackedExtremePrice = current.Low;
+                _activeSetup.TrackedExtremeTs = current.Ts;
                 return;
             }
 
@@ -269,6 +296,25 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
 
         if (_activeSetup.Phase == SetupPhase.WaitingIfvg)
         {
+            if (_activeSetup.SweptSide == SweepSide.High)
+            {
+                if (!_activeSetup.HasTrackedExtreme || current.High > _activeSetup.TrackedExtremePrice)
+                {
+                    _activeSetup.HasTrackedExtreme = true;
+                    _activeSetup.TrackedExtremePrice = current.High;
+                    _activeSetup.TrackedExtremeTs = current.Ts;
+                }
+            }
+            else if (_activeSetup.SweptSide == SweepSide.Low)
+            {
+                if (!_activeSetup.HasTrackedExtreme || current.Low < _activeSetup.TrackedExtremePrice)
+                {
+                    _activeSetup.HasTrackedExtreme = true;
+                    _activeSetup.TrackedExtremePrice = current.Low;
+                    _activeSetup.TrackedExtremeTs = current.Ts;
+                }
+            }
+
             if (newFvg is null)
                 return;
 
@@ -280,6 +326,16 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
                 return;
 
             _activeSetup.FirstIfvg = newFvg;
+
+            if (_activeSetup.HasTrackedExtreme)
+            {
+                _activeSetup.HasStopLoss = true;
+                _activeSetup.StopLossPrice = _activeSetup.TrackedExtremePrice;
+                _activeSetup.StopLossTs = _activeSetup.TrackedExtremeTs;
+                _activeSetup.StopLossStartTs = _activeSetup.Session.EndTs;
+                _activeSetup.StopLossEndTs = newFvg.AnchorTs + SlProjectionCandles * OneMinuteNs;
+            }
+
             _activeSetup.Phase = SetupPhase.WaitingIfvgTouch;
             return;
         }
@@ -307,6 +363,34 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
 
         if (_activeSetup.Phase == SetupPhase.WaitingTarget)
         {
+            // STOP LOSS = FAIL
+            if (_activeSetup.HasStopLoss)
+            {
+                if (_activeSetup.SweptSide == SweepSide.High)
+                {
+                    // setup vendeur : SL au-dessus
+                    if (current.High >= _activeSetup.StopLossPrice)
+                    {
+                        _activeSetup.StopLossHit = true;
+                        _activeSetup.StopLossHitTs = current.Ts;
+                        _activeSetup.Phase = SetupPhase.Done;
+                        return;
+                    }
+                }
+                else if (_activeSetup.SweptSide == SweepSide.Low)
+                {
+                    // setup acheteur : SL en-dessous
+                    if (current.Low <= _activeSetup.StopLossPrice)
+                    {
+                        _activeSetup.StopLossHit = true;
+                        _activeSetup.StopLossHitTs = current.Ts;
+                        _activeSetup.Phase = SetupPhase.Done;
+                        return;
+                    }
+                }
+            }
+
+            // TARGET = SUCCESS
             if (_activeSetup.SweptSide == SweepSide.High)
             {
                 if (current.Low <= _activeSetup.Session.Low)
@@ -388,7 +472,10 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
             if (s.FirstIfvg is not null)
                 DrawIfvg(ctx, plot, tsToX, priceToY, s.FirstIfvg);
 
-            if (s.Phase >= SetupPhase.WaitingTarget)
+            if (s.HasStopLoss)
+                DrawStopLoss(ctx, plot, tsToX, priceToY, s);
+
+            if (s.Phase >= SetupPhase.WaitingTarget || s.TargetReached || s.StopLossHit)
                 DrawTarget(ctx, plot, tsToX, priceToY, s);
         }
     }
@@ -459,6 +546,47 @@ public sealed class SilverBulletIfvgTargetIndicator : IGraphIndicator
             z.IsBullish ? _bullIfvgBorder.Brush : _bearIfvgBorder.Brush,
             left + 4,
             top + 4);
+    }
+
+    private void DrawStopLoss(
+        DrawingContext ctx,
+        Rect plot,
+        Func<long, double> tsToX,
+        Func<double, double> priceToY,
+        Setup s)
+    {
+        const double halfHeight = 4.0;
+
+        double x1 = tsToX(s.StopLossStartTs);
+        double x2 = tsToX(s.StopLossEndTs);
+
+        if (x2 < plot.Left || x1 > plot.Right)
+            return;
+
+        double y = priceToY(s.StopLossPrice);
+
+        var rect = new Rect(
+            new Point(Math.Min(x1, x2), y - halfHeight),
+            new Point(Math.Max(x1, x2), y + halfHeight));
+
+        ctx.FillRectangle(_slFill, rect);
+        ctx.DrawRectangle(null, _slBorder, rect);
+
+        DrawText(
+            ctx,
+            "SL",
+            _slBorder.Brush,
+            rect.Left + 4,
+            rect.Top - 16);
+
+        if (s.StopLossHit)
+        {
+            double hitX = tsToX(s.StopLossHitTs);
+            ctx.DrawLine(
+                _slBorder,
+                new Point(hitX, rect.Top - 6),
+                new Point(hitX, rect.Bottom + 6));
+        }
     }
 
     private void DrawTarget(
