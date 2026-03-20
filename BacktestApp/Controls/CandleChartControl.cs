@@ -70,11 +70,11 @@ public sealed partial class CandleChartControl : Control
         //    new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)));
 
 
-        _indicators.Add(new FvgIndicator("FVG"));
+        //_indicators.Add(new FvgIndicator("FVG"));
 
         //_indicators.Add(new LiquidityLevelsIndicator("ICT Liquidity"));
 
-        //_indicators.Add(new SilverBulletIfvgTargetIndicator());
+        _indicators.Add(new SilverBulletIfvgTargetIndicator());
     }
 
     private void ResetIndicators()
