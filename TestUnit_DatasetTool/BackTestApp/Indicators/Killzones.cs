@@ -52,6 +52,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                     new { Name = "London", Start = new TimeSpan(7, 0, 0), End = new TimeSpan(10, 0, 0) },
                     new { Name = "Between London - NY AM", Start = new TimeSpan(10, 0, 0), End = new TimeSpan(13, 30, 0) },
                     new { Name = "NY AM", Start = new TimeSpan(13, 30, 0), End = new TimeSpan(16, 0, 0) },
+                    new { Name = "Silver Bullet", Start = new TimeSpan(21, 0, 0), End = new TimeSpan(22, 0, 0) }
                 };
 
             // ==================================================
@@ -574,6 +575,446 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             Assert.True(
                 totalComparisons > 0,
                 "Aucune comparaison finale n'a été produite.");
+        }
+
+
+        private enum SweepSide
+        {
+            None = 0,
+            High = 1,
+            Low = 2
+        }
+
+        private enum SetupPhase
+        {
+            WaitingSweep = 0,
+            WaitingIfvgCreation = 1,
+            WaitingIfvgTouch = 2,
+            WaitingOppositeExtremeTouch = 3,
+            Done = 4,
+            Failed = 5
+        }
+
+        private sealed class ActiveSilverBulletSetup
+        {
+            public DateTime SessionDateUtc { get; init; }
+
+            public long SessionStartTs { get; init; }
+            public long SessionEndTs { get; init; }
+            public double SessionHigh { get; init; }
+            public double SessionLow { get; init; }
+
+            public SetupPhase Phase { get; set; } = SetupPhase.WaitingSweep;
+            public SweepSide SweptSide { get; set; } = SweepSide.None;
+
+            public long SweepTs { get; set; }
+            public long IfvgAnchorTs { get; set; }
+            public bool? ExpectedIfvgBullish { get; set; }
+
+            public double IfvgLow { get; set; }
+            public double IfvgHigh { get; set; }
+
+            public long IfvgTouchTs { get; set; }
+            public long OppositeExtremeTouchTs { get; set; }
+
+            public string FailureReason { get; set; } = string.Empty;
+        }
+
+        [Fact]
+        public void LoadNext_Should_Detect_SilverBullet_Sweep_Then_First_IFVG_Return_Then_Touch_Opposite_Extreme()
+        {
+            // ==================================================
+            // CONFIG
+            // ==================================================
+            const bool enableVerboseDebug = true;
+            const bool failPreviousSetupWhenNewSessionCloses = true;
+
+            // ==================================================
+            // CHART + PARCOURS GLOBAL DE TOUS LES FICHIERS
+            // ==================================================
+            var chart = new CandleChartControl();
+            chart.Test_InitializeFilesAndCandlesMode();
+
+            // ==================================================
+            // INDICATEURS DE BACKTEST INDEPENDANTS
+            // ==================================================
+            var silverBullet = new SessionHighLowIndicator(
+                "Silver Bullet",
+                new TimeSpan(21, 0, 0),
+                new TimeSpan(22, 0, 0));
+
+            var fvg = new FvgIndicator("FVG");
+
+            // ==================================================
+            // ETAT
+            // ==================================================
+            var detectedSummaries = new List<string>();
+
+            ActiveSilverBulletSetup? active = null;
+
+            long lastClosedSilverBulletEndTs = 0;
+            int lastProcessedFvgCount = 0;
+
+            int totalCandlesProcessed = 0;
+            int totalSteps = 0;
+            int totalSessionsClosed = 0;
+
+            int sweepDetectedCount = 0;
+            int ifvgCreatedCount = 0;
+            int ifvgTouchedCount = 0;
+            int successCount = 0;
+            int failureCount = 0;
+
+            int loadedFileSwitchCount = 0;
+            int lastLoadedFileIdx = -1;
+
+            // ==================================================
+            // HELPERS
+            // ==================================================
+            static DateTime ToUtcDate(long tsNs)
+            {
+                long sec = tsNs / 1_000_000_000L;
+                return DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime;
+            }
+
+            static string FmtTs(long tsNs)
+            {
+                long sec = tsNs / 1_000_000_000L;
+                return DateTimeOffset.FromUnixTimeSeconds(sec).UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+
+            static bool CandleTouchesZone(long high, long low, double zoneLow, double zoneHigh)
+            {
+                double h = high;
+                double l = low;
+                return h >= zoneLow && l <= zoneHigh;
+            }
+
+            void FinalizeFailure(ActiveSilverBulletSetup setup, string reason)
+            {
+                if (setup.Phase == SetupPhase.Done || setup.Phase == SetupPhase.Failed)
+                    return;
+
+                setup.Phase = SetupPhase.Failed;
+                setup.FailureReason = reason;
+                failureCount++;
+
+                string summary =
+                    $"[FAIL] day={setup.SessionDateUtc:yyyy-MM-dd} " +
+                    $"SB[{FmtTs(setup.SessionStartTs)} -> {FmtTs(setup.SessionEndTs)}] " +
+                    $"high={setup.SessionHigh} low={setup.SessionLow} " +
+                    $"swept={setup.SweptSide} " +
+                    $"reason={reason}";
+
+                detectedSummaries.Add(summary);
+
+                if (enableVerboseDebug)
+                    Debug.WriteLine(summary);
+            }
+
+            void FinalizeSuccess(ActiveSilverBulletSetup setup)
+            {
+                if (setup.Phase == SetupPhase.Done || setup.Phase == SetupPhase.Failed)
+                    return;
+
+                setup.Phase = SetupPhase.Done;
+                successCount++;
+
+                string summary =
+                    $"[OK] day={setup.SessionDateUtc:yyyy-MM-dd} " +
+                    $"SB[{FmtTs(setup.SessionStartTs)} -> {FmtTs(setup.SessionEndTs)}] " +
+                    $"high={setup.SessionHigh} low={setup.SessionLow} " +
+                    $"swept={setup.SweptSide} sweepTs={FmtTs(setup.SweepTs)} " +
+                    $"ifvg=[{setup.IfvgLow} -> {setup.IfvgHigh}] anchor={FmtTs(setup.IfvgAnchorTs)} " +
+                    $"ifvgTouchTs={FmtTs(setup.IfvgTouchTs)} " +
+                    $"oppositeTouchTs={FmtTs(setup.OppositeExtremeTouchTs)}";
+
+                detectedSummaries.Add(summary);
+
+                if (enableVerboseDebug)
+                    Debug.WriteLine(summary);
+            }
+
+            void ProcessCandle(long ts, long open, long high, long low, long close, uint volume, byte sym)
+            {
+                totalCandlesProcessed++;
+
+                // 1) feed indicateurs
+                silverBullet.OnCandle(ts, open, high, low, close, volume, sym, 1.0);
+                fvg.OnCandle(ts, open, high, low, close, volume, sym, 1.0);
+
+                // 2) détecter fermeture d'une nouvelle Silver Bullet
+                var sb = silverBullet.CurrentOutput;
+                if (sb.HasLast &&
+                    sb.State == SessionHighLowIndicator.SessionState.Out &&
+                    sb.LastEndTs != 0 &&
+                    sb.LastEndTs != lastClosedSilverBulletEndTs)
+                {
+                    totalSessionsClosed++;
+
+                    if (active is not null &&
+                        active.Phase != SetupPhase.Done &&
+                        active.Phase != SetupPhase.Failed &&
+                        failPreviousSetupWhenNewSessionCloses)
+                    {
+                        FinalizeFailure(active, "Nouvelle Silver Bullet clôturée avant résolution du setup précédent.");
+                    }
+
+                    active = new ActiveSilverBulletSetup
+                    {
+                        SessionDateUtc = ToUtcDate(sb.LastEndTs).Date,
+                        SessionStartTs = sb.LastStartTs,
+                        SessionEndTs = sb.LastEndTs,
+                        SessionHigh = sb.LastHigh,
+                        SessionLow = sb.LastLow,
+                        Phase = SetupPhase.WaitingSweep
+                    };
+
+                    lastClosedSilverBulletEndTs = sb.LastEndTs;
+
+                    if (enableVerboseDebug)
+                    {
+                        Debug.WriteLine(
+                            $"[SB CLOSED] day={active.SessionDateUtc:yyyy-MM-dd} " +
+                            $"start={FmtTs(active.SessionStartTs)} end={FmtTs(active.SessionEndTs)} " +
+                            $"high={active.SessionHigh} low={active.SessionLow}");
+                    }
+                }
+
+                // 3) traiter les nouveaux FVG créés par cette candle
+                var zones = fvg.Zones;
+                if (lastProcessedFvgCount < zones.Count)
+                {
+                    for (int i = lastProcessedFvgCount; i < zones.Count; i++)
+                    {
+                        var z = zones[i];
+
+                        if (active is null)
+                            continue;
+
+                        if (active.Phase != SetupPhase.WaitingIfvgCreation)
+                            continue;
+
+                        if (z.AnchorTs <= active.SweepTs)
+                            continue;
+
+                        bool expectedBullish = active.ExpectedIfvgBullish ?? false;
+                        if (z.IsBullish != expectedBullish)
+                            continue;
+
+                        active.IfvgAnchorTs = z.AnchorTs;
+                        active.IfvgLow = z.Low;
+                        active.IfvgHigh = z.High;
+                        active.Phase = SetupPhase.WaitingIfvgTouch;
+
+                        ifvgCreatedCount++;
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[IFVG CREATED] day={active.SessionDateUtc:yyyy-MM-dd} " +
+                                $"expectedBullish={expectedBullish} " +
+                                $"anchor={FmtTs(active.IfvgAnchorTs)} " +
+                                $"zone=[{active.IfvgLow} -> {active.IfvgHigh}]");
+                        }
+
+                        break; // premier IFVG seulement
+                    }
+
+                    lastProcessedFvgCount = zones.Count;
+                }
+
+                // 4) state machine du setup actif
+                if (active is null)
+                    return;
+
+                // on ne traite que les candles après la fin de la session SB
+                if (ts <= active.SessionEndTs)
+                    return;
+
+                // ---- Phase 1 : attendre sweep high ou low
+                if (active.Phase == SetupPhase.WaitingSweep)
+                {
+                    bool breaksHigh = high > active.SessionHigh;
+                    bool breaksLow = low < active.SessionLow;
+
+                    if (breaksHigh && breaksLow)
+                    {
+                        FinalizeFailure(active, "Même candle casse le high et le low de la Silver Bullet, séquence ambiguë.");
+                        return;
+                    }
+
+                    if (breaksHigh)
+                    {
+                        active.SweptSide = SweepSide.High;
+                        active.SweepTs = ts;
+                        active.ExpectedIfvgBullish = false; // après prise du high, on attend un IFVG bearish
+                        active.Phase = SetupPhase.WaitingIfvgCreation;
+                        sweepDetectedCount++;
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[SWEEP HIGH] day={active.SessionDateUtc:yyyy-MM-dd} " +
+                                $"ts={FmtTs(ts)} SBhigh={active.SessionHigh}");
+                        }
+
+                        return;
+                    }
+
+                    if (breaksLow)
+                    {
+                        active.SweptSide = SweepSide.Low;
+                        active.SweepTs = ts;
+                        active.ExpectedIfvgBullish = true; // après prise du low, on attend un IFVG bullish
+                        active.Phase = SetupPhase.WaitingIfvgCreation;
+                        sweepDetectedCount++;
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[SWEEP LOW] day={active.SessionDateUtc:yyyy-MM-dd} " +
+                                $"ts={FmtTs(ts)} SBlow={active.SessionLow}");
+                        }
+
+                        return;
+                    }
+
+                    return;
+                }
+
+                // ---- Phase 2 : IFVG déjà créé, attendre retour dans la zone
+                if (active.Phase == SetupPhase.WaitingIfvgTouch)
+                {
+                    if (CandleTouchesZone(high, low, active.IfvgLow, active.IfvgHigh))
+                    {
+                        active.IfvgTouchTs = ts;
+                        active.Phase = SetupPhase.WaitingOppositeExtremeTouch;
+                        ifvgTouchedCount++;
+
+                        if (enableVerboseDebug)
+                        {
+                            Debug.WriteLine(
+                                $"[IFVG TOUCH] day={active.SessionDateUtc:yyyy-MM-dd} " +
+                                $"ts={FmtTs(ts)} zone=[{active.IfvgLow} -> {active.IfvgHigh}]");
+                        }
+                    }
+
+                    return;
+                }
+
+                // ---- Phase 3 : après retour IFVG, attendre l'autre extrémité SB
+                if (active.Phase == SetupPhase.WaitingOppositeExtremeTouch)
+                {
+                    if (active.SweptSide == SweepSide.High)
+                    {
+                        if (low <= active.SessionLow)
+                        {
+                            active.OppositeExtremeTouchTs = ts;
+                            FinalizeSuccess(active);
+                        }
+
+                        return;
+                    }
+
+                    if (active.SweptSide == SweepSide.Low)
+                    {
+                        if (high >= active.SessionHigh)
+                        {
+                            active.OppositeExtremeTouchTs = ts;
+                            FinalizeSuccess(active);
+                        }
+
+                        return;
+                    }
+                }
+            }
+
+            // ==================================================
+            // 1) TRAITER LE PREMIER BATCH DEJA CHARGE
+            // ==================================================
+            lastLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
+            if (lastLoadedFileIdx != -1)
+                loadedFileSwitchCount = 1;
+
+            foreach (var candle in chart.Test_GetLastAddedCandles())
+            {
+                ProcessCandle(
+                    candle.Ts,
+                    candle.O,
+                    candle.H,
+                    candle.L,
+                    candle.C,
+                    candle.V,
+                    candle.Sym);
+            }
+
+            // ==================================================
+            // 2) PARCOURS COMPLET DE TOUS LES FICHIERS / CANDLES
+            // ==================================================
+            while (chart.Test_AdvanceCandlesNext())
+            {
+                totalSteps++;
+
+                int currentLoadedFileIdx = chart.Test_GetUiLoadedFileIdx();
+                if (currentLoadedFileIdx != -1 && currentLoadedFileIdx != lastLoadedFileIdx)
+                {
+                    loadedFileSwitchCount++;
+                    lastLoadedFileIdx = currentLoadedFileIdx;
+                }
+
+                var added = chart.Test_GetLastAddedCandles();
+                for (int i = 0; i < added.Count; i++)
+                {
+                    var candle = added[i];
+
+                    ProcessCandle(
+                        candle.Ts,
+                        candle.O,
+                        candle.H,
+                        candle.L,
+                        candle.C,
+                        candle.V,
+                        candle.Sym);
+                }
+            }
+
+            // ==================================================
+            // FIN : si un setup reste ouvert, on le clôture en échec
+            // ==================================================
+            if (active is not null &&
+                active.Phase != SetupPhase.Done &&
+                active.Phase != SetupPhase.Failed)
+            {
+                FinalizeFailure(active, "Fin des données avant complétion du setup.");
+            }
+
+            // ==================================================
+            // DEBUG FINAL
+            // ==================================================
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine("SILVER BULLET -> SWEEP -> FIRST IFVG -> TOUCH IFVG -> OTHER EXTREME");
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine($"Files loaded           : {loadedFileSwitchCount}");
+            Debug.WriteLine($"Steps processed        : {totalSteps}");
+            Debug.WriteLine($"Candles processed      : {totalCandlesProcessed}");
+            Debug.WriteLine($"SB sessions closed     : {totalSessionsClosed}");
+            Debug.WriteLine($"Sweeps detected        : {sweepDetectedCount}");
+            Debug.WriteLine($"IFVG created           : {ifvgCreatedCount}");
+            Debug.WriteLine($"IFVG touched           : {ifvgTouchedCount}");
+            Debug.WriteLine($"Success count          : {successCount}");
+            Debug.WriteLine($"Failure count          : {failureCount}");
+            Debug.WriteLine("==================================================");
+
+            foreach (var line in detectedSummaries)
+                Debug.WriteLine(line);
+
+            // ==================================================
+            // ASSERTS MINIMUMS
+            // ==================================================
+            Assert.True(totalCandlesProcessed > 0, "Aucune candle parcourue.");
+            Assert.True(totalSessionsClosed > 0, "Aucune session Silver Bullet clôturée détectée.");
+            Assert.True(successCount + failureCount > 0, "Aucun setup Silver Bullet analysé.");
         }
     }
 }
