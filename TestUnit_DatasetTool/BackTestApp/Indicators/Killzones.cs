@@ -985,7 +985,28 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                         if (active.HasTrackedExtreme)
                         {
                             active.HasStopLoss = true;
-                            active.StopLossPrice = active.TrackedExtremePrice;
+
+                            double extreme = active.TrackedExtremePrice;
+
+                            // on prend le bord de l'IFVG côté entrée
+                            double entry =
+                                active.SweptSide == SweepSide.High
+                                    ? active.IfvgHigh   // SELL → entrée en haut de la zone
+                                    : active.IfvgLow;   // BUY → entrée en bas
+
+                            double distance = Math.Abs(extreme - entry);
+
+                            if (active.SweptSide == SweepSide.High)
+                            {
+                                // SELL → SL au-dessus
+                                active.StopLossPrice = entry + (distance * 2.0);
+                            }
+                            else
+                            {
+                                // BUY → SL en-dessous
+                                active.StopLossPrice = entry - (distance * 2.0);
+                            }
+
                             active.StopLossTs = active.TrackedExtremeTs;
                         }
 

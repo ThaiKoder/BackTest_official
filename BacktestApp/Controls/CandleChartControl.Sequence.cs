@@ -12,8 +12,16 @@ public sealed partial class CandleChartControl
     private FileIndex.FileCursorStep? _uiFileStep;
     private CandleIndex.CandleCursorStep? _uiCandleStep;
 
-    private List<int> _uiPendingFileIdxs = new();
+    private FileIndex.FileCursorStepPrevious? _uiFileStepPrevious;
+    private CandleIndex.CandleCursorStepPrevious? _uiCandleStepPrevious;
+
+    private readonly List<int> _uiPendingFileIdxs = new();
     private int _uiPendingFilePos = -1;
+
+    private readonly List<int> _uiPendingPreviousFileIdxs = new();
+    private int _uiPendingPreviousFilePos = -1;
+
+    private int _uiCurrentFileIdx = -1;
 
     private int RingPhysicalIndex(int logicalIndex)
     {
@@ -43,7 +51,6 @@ public sealed partial class CandleChartControl
             return;
         }
 
-        // overwrite le plus ancien
         _ts[_ringHead] = ts;
         _o[_ringHead] = o;
         _h[_ringHead] = h;
@@ -54,6 +61,45 @@ public sealed partial class CandleChartControl
 
         _ringHead = (_ringHead + 1) % WindowCount;
         _ringFirstGlobalIdx++;
+    }
+
+    private void RingPushFront(long ts, long o, long h, long l, long c, uint v, byte sym)
+    {
+        if (_ringCount < WindowCount)
+        {
+            _ringHead = (_ringHead - 1 + WindowCount) % WindowCount;
+
+            _ts[_ringHead] = ts;
+            _o[_ringHead] = o;
+            _h[_ringHead] = h;
+            _l[_ringHead] = l;
+            _c[_ringHead] = c;
+            _v[_ringHead] = v;
+            _sym[_ringHead] = sym;
+
+            _ringCount++;
+            _ringFirstGlobalIdx--;
+            if (_ringFirstGlobalIdx < 0)
+                _ringFirstGlobalIdx = 0;
+
+            return;
+        }
+
+        int tail = (_ringHead + _ringCount - 1) % WindowCount;
+
+        _ringHead = (_ringHead - 1 + WindowCount) % WindowCount;
+
+        _ts[_ringHead] = ts;
+        _o[_ringHead] = o;
+        _h[_ringHead] = h;
+        _l[_ringHead] = l;
+        _c[_ringHead] = c;
+        _v[_ringHead] = v;
+        _sym[_ringHead] = sym;
+
+        _ringFirstGlobalIdx--;
+        if (_ringFirstGlobalIdx < 0)
+            _ringFirstGlobalIdx = 0;
     }
 
     private void RingPopFront(int count)
@@ -70,6 +116,23 @@ public sealed partial class CandleChartControl
 
         if (_ringCount == 0)
             _ringHead = 0;
+    }
+
+    private void RingPopBack(int count)
+    {
+        if (count <= 0 || _ringCount <= 0)
+            return;
+
+        if (count > _ringCount)
+            count = _ringCount;
+
+        _ringCount -= count;
+
+        if (_ringCount == 0)
+        {
+            _ringHead = 0;
+            _ringFirstGlobalIdx = 0;
+        }
     }
 
     private long RingTsAtLogical(int logicalIndex) => _ts[RingPhysicalIndex(logicalIndex)];
@@ -90,19 +153,12 @@ public sealed partial class CandleChartControl
 
         _uiFileStep = _uiFileIndex.FilesNext(0, UiFileRange);
         if (_uiFileStep.CurrentIdx < 0)
-        {
-            DebugMessage.Write("[CandleChartControl] _index.bin vide ou premier curseur invalide");
             return;
-        }
 
-        // Premier batch : il faut traiter TOUS les fichiers valides du step initial
         SetPendingFilesFromStep(_uiFileStep, useWindow: true);
 
         if (_uiPendingFileIdxs.Count == 0)
-        {
-            DebugMessage.Write("[CandleChartControl] aucun fichier valide dans le premier step");
             return;
-        }
 
         LoadCandlesForCurrentFileStep();
     }
@@ -116,9 +172,39 @@ public sealed partial class CandleChartControl
             return;
 
         int fileIdx = _uiPendingFileIdxs[_uiPendingFilePos];
+        LoadCandlesForFile(fileIdx, resetView: true);
+
+        _uiCandleStep = _uiCandleIndex!.CandlesNext(0, UiCandleRange);
+        ApplyCandleStepToWindow(_uiCandleStep, resetView: true);
+
+        _uiCurrentFileIdx = fileIdx;
+    }
+
+    private void LoadCandlesForCurrentPreviousFileStep()
+    {
+        if (_uiFileIndex == null || _uiFileStepPrevious == null)
+            return;
+
+        if (_uiPendingPreviousFilePos < 0 || _uiPendingPreviousFilePos >= _uiPendingPreviousFileIdxs.Count)
+            return;
+
+        int fileIdx = _uiPendingPreviousFileIdxs[_uiPendingPreviousFilePos];
+        LoadCandlesForFile(fileIdx, resetView: true);
+
+        int startCursor = Math.Max(0, (int)(_uiCandleIndex!.Count - 1));
+        _uiCandleStepPrevious = _uiCandleIndex.CandlesPrevious(startCursor, UiCandleRange);
+        ApplyPreviousCandleStepToWindow(_uiCandleStepPrevious, resetView: true);
+
+        _uiCurrentFileIdx = fileIdx;
+    }
+
+    private void LoadCandlesForFile(int fileIdx, bool resetView)
+    {
+        if (_uiFileIndex == null)
+            return;
 
         var (startYmd, endYmd) = _uiFileIndex.Read(fileIdx);
-        
+
         string filePath = Path.Combine(
             "data",
             "bin",
@@ -128,8 +214,28 @@ public sealed partial class CandleChartControl
         _uiCandleIndex = new CandleIndex();
         _uiCandleIndex.Load(filePath);
 
-        _uiCandleStep = _uiCandleIndex.CandlesNext(0, UiCandleRange);
-        ApplyCandleStepToWindow(_uiCandleStep, resetView: true);
+        if (resetView)
+        {
+            _xInited = false;
+            _yInited = false;
+        }
+    }
+
+    private void RebuildIndicatorsFromRing()
+    {
+        ResetIndicators();
+
+        for (int i = 0; i < _ringCount; i++)
+        {
+            FeedIndicators(
+                RingTsAtLogical(i),
+                RingOAtLogical(i),
+                RingHAtLogical(i),
+                RingLAtLogical(i),
+                RingCAtLogical(i),
+                RingVAtLogical(i),
+                RingSymAtLogical(i));
+        }
     }
 
     private void ApplyCandleStepToWindow(CandleIndex.CandleCursorStep step, bool resetView)
@@ -137,7 +243,6 @@ public sealed partial class CandleChartControl
         if (resetView || _ringCount == 0)
         {
             RingClear();
-            ResetIndicators();
 
             int firstValidIdx = -1;
 
@@ -158,18 +263,10 @@ public sealed partial class CandleChartControl
                     candle.C,
                     candle.V,
                     candle.Sym);
-
-                FeedIndicators(
-                    candle.Ts,
-                    candle.O,
-                    candle.H,
-                    candle.L,
-                    candle.C,
-                    candle.V,
-                    candle.Sym);
             }
 
             _ringFirstGlobalIdx = Math.Max(0, firstValidIdx);
+            RebuildIndicatorsFromRing();
         }
         else
         {
@@ -189,16 +286,9 @@ public sealed partial class CandleChartControl
                     candle.C,
                     candle.V,
                     candle.Sym);
-
-                FeedIndicators(
-                    candle.Ts,
-                    candle.O,
-                    candle.H,
-                    candle.L,
-                    candle.C,
-                    candle.V,
-                    candle.Sym);
             }
+
+            RebuildIndicatorsFromRing();
         }
 
         _windowLoaded = _ringCount;
@@ -211,51 +301,80 @@ public sealed partial class CandleChartControl
             _yInited = false;
         }
 
-        DebugMessage.Write(
-            $"[CandleChartControl] step current={step.CurrentIdx} next={step.NextCursorIdx} " +
-            $"loaded={_windowLoaded} head={_ringHead} firstGlobal={_ringFirstGlobalIdx}");
-
         InvalidateVisual();
     }
 
-    private void RebuildWindowFromStep(CandleIndex.CandleCursorStep step)
+    private void ApplyPreviousCandleStepToWindow(CandleIndex.CandleCursorStepPrevious step, bool resetView)
     {
-        int filled = 0;
-        int firstValidIdx = -1;
-
-        foreach (var candle in step.Window)
+        if (resetView || _ringCount == 0)
         {
-            if (candle.Idx == -1)
-                continue;
+            RingClear();
 
-            if (firstValidIdx == -1)
-                firstValidIdx = candle.Idx;
+            int firstValidIdx = -1;
 
-            if (filled >= WindowCount)
-                break;
+            for (int i = 0; i < step.Window.Count; i++)
+            {
+                var candle = step.Window[i];
+                if (candle.Idx == -1)
+                    continue;
 
-            _ts[filled] = candle.Ts;
-            _o[filled] = candle.O;
-            _h[filled] = candle.H;
-            _l[filled] = candle.L;
-            _c[filled] = candle.C;
-            _v[filled] = candle.V;
-            _sym[filled] = candle.Sym;
-            filled++;
+                if (firstValidIdx == -1)
+                    firstValidIdx = candle.Idx;
+
+                RingPushBack(
+                    candle.Ts,
+                    candle.O,
+                    candle.H,
+                    candle.L,
+                    candle.C,
+                    candle.V,
+                    candle.Sym);
+            }
+
+            _ringFirstGlobalIdx = Math.Max(0, firstValidIdx);
+            RebuildIndicatorsFromRing();
+        }
+        else
+        {
+            RingPopBack(step.Removed.Count);
+
+            for (int i = step.Added.Count - 1; i >= 0; i--)
+            {
+                var candle = step.Added[i];
+                if (candle.Idx == -1)
+                    continue;
+
+                RingPushFront(
+                    candle.Ts,
+                    candle.O,
+                    candle.H,
+                    candle.L,
+                    candle.C,
+                    candle.V,
+                    candle.Sym);
+            }
+
+            RebuildIndicatorsFromRing();
         }
 
-        _windowLoaded = filled;
-        _windowStart = Math.Max(0, firstValidIdx);
+        _windowLoaded = _ringCount;
+        _windowStart = _ringFirstGlobalIdx;
         _fileCount = _uiCandleIndex?.Count ?? 0;
-    }
 
+        if (resetView)
+        {
+            _xInited = false;
+            _yInited = false;
+        }
+
+        InvalidateVisual();
+    }
 
     private bool AdvanceCandlesNext()
     {
         if (_uiFileIndex == null || _uiFileStep == null)
             return false;
 
-        // Pas encore de candles chargées
         if (_uiCandleIndex == null || _uiCandleStep == null)
         {
             if (_uiPendingFileIdxs.Count == 0)
@@ -265,7 +384,6 @@ public sealed partial class CandleChartControl
             return _uiCandleStep != null;
         }
 
-        // 1) Continuer dans le fichier courant
         if (_uiCandleStep.NextCursorIdx != -1)
         {
             _uiCandleStep = _uiCandleIndex.CandlesNext(_uiCandleStep.NextCursorIdx, UiCandleRange);
@@ -273,39 +391,81 @@ public sealed partial class CandleChartControl
             return true;
         }
 
-        // 2) Fin du fichier courant => passer au fichier suivant déjà présent dans le step courant
         if (MoveToNextPendingFileInCurrentStep())
         {
             LoadCandlesForCurrentFileStep();
             return _uiCandleStep != null && _windowLoaded > 0;
         }
 
-        // 3) Plus de fichiers en attente dans ce step => demander le step suivant de FilesNext
         if (_uiFileStep.NextCursorIdx == -1)
-        {
-            DebugMessage.Write("[CandleChartControl] fin du dernier fichier pour FilesNext/CandlesNext");
             return false;
-        }
 
         _uiFileStep = _uiFileIndex.FilesNext(_uiFileStep.NextCursorIdx, UiFileRange);
 
         if (_uiFileStep.CurrentIdx < 0)
-        {
-            DebugMessage.Write("[CandleChartControl] fichier suivant invalide");
             return false;
-        }
 
-        // Sur les steps suivants, seuls les nouveaux fichiers à droite doivent être traités
         SetPendingFilesFromStep(_uiFileStep, useWindow: false);
 
         if (_uiPendingFileIdxs.Count == 0)
-        {
-            DebugMessage.Write("[CandleChartControl] aucun fichier ajouté dans le step suivant");
             return false;
-        }
 
         LoadCandlesForCurrentFileStep();
         return _uiCandleStep != null && _windowLoaded > 0;
+    }
+
+    private bool AdvanceCandlesPrevious()
+    {
+        if (_uiFileIndex == null)
+            return false;
+
+        if (_uiCurrentFileIdx < 0)
+            return false;
+
+        // Lazy init du state previous à partir du fichier courant
+        if (_uiFileStepPrevious == null)
+        {
+            _uiFileStepPrevious = _uiFileIndex.FilesPrevious(_uiCurrentFileIdx, UiFileRange);
+
+            if (_uiFileStepPrevious.CurrentIdx < 0)
+                return false;
+
+            SetPendingPreviousFilesFromStep(_uiFileStepPrevious, useWindow: true, currentFileIdx: _uiCurrentFileIdx);
+
+            if (_uiCandleIndex != null)
+            {
+                int currentCursor = (int)Math.Max(0, _windowStart);
+                _uiCandleStepPrevious = _uiCandleIndex.CandlesPrevious(currentCursor, UiCandleRange);
+            }
+        }
+
+        if (_uiCandleIndex != null && _uiCandleStepPrevious != null && _uiCandleStepPrevious.PreviousCursorIdx != -1)
+        {
+            _uiCandleStepPrevious = _uiCandleIndex.CandlesPrevious(_uiCandleStepPrevious.PreviousCursorIdx, UiCandleRange);
+            ApplyPreviousCandleStepToWindow(_uiCandleStepPrevious, resetView: false);
+            return true;
+        }
+
+        if (MoveToPreviousPendingFileInCurrentStep())
+        {
+            LoadCandlesForCurrentPreviousFileStep();
+            return _uiCandleStepPrevious != null && _windowLoaded > 0;
+        }
+
+        if (_uiFileStepPrevious == null || _uiFileStepPrevious.PreviousCursorIdx == -1)
+            return false;
+
+        _uiFileStepPrevious = _uiFileIndex.FilesPrevious(_uiFileStepPrevious.PreviousCursorIdx, UiFileRange);
+        if (_uiFileStepPrevious.CurrentIdx < 0)
+            return false;
+
+        SetPendingPreviousFilesFromStep(_uiFileStepPrevious, useWindow: false, currentFileIdx: _uiCurrentFileIdx);
+
+        if (_uiPendingPreviousFileIdxs.Count == 0)
+            return false;
+
+        LoadCandlesForCurrentPreviousFileStep();
+        return _uiCandleStepPrevious != null && _windowLoaded > 0;
     }
 
     private void SetPendingFilesFromStep(FileIndex.FileCursorStep step, bool useWindow)
@@ -325,6 +485,32 @@ public sealed partial class CandleChartControl
         _uiPendingFilePos = 0;
     }
 
+    private void SetPendingPreviousFilesFromStep(
+        FileIndex.FileCursorStepPrevious step,
+        bool useWindow,
+        int currentFileIdx)
+    {
+        _uiPendingPreviousFileIdxs.Clear();
+
+        var source = useWindow ? step.Window : step.Added;
+
+        foreach (var file in source)
+        {
+            if (file.Idx == -1)
+                continue;
+
+            if (file.Idx >= currentFileIdx)
+                continue;
+
+            _uiPendingPreviousFileIdxs.Add(file.Idx);
+        }
+
+        _uiPendingPreviousFileIdxs.Sort();
+        _uiPendingPreviousFileIdxs.Reverse();
+
+        _uiPendingPreviousFilePos = 0;
+    }
+
     private bool MoveToNextPendingFileInCurrentStep()
     {
         if (_uiPendingFileIdxs.Count == 0)
@@ -335,6 +521,19 @@ public sealed partial class CandleChartControl
             return false;
 
         _uiPendingFilePos = nextPos;
+        return true;
+    }
+
+    private bool MoveToPreviousPendingFileInCurrentStep()
+    {
+        if (_uiPendingPreviousFileIdxs.Count == 0)
+            return false;
+
+        int nextPos = _uiPendingPreviousFilePos + 1;
+        if (nextPos >= _uiPendingPreviousFileIdxs.Count)
+            return false;
+
+        _uiPendingPreviousFilePos = nextPos;
         return true;
     }
 }

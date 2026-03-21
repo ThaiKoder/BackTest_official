@@ -204,10 +204,7 @@ public sealed partial class CandleChartControl
 
     internal int Test_GetUiLoadedFileIdx()
     {
-        if (_uiPendingFilePos < 0 || _uiPendingFilePos >= _uiPendingFileIdxs.Count)
-            return -1;
-
-        return _uiPendingFileIdxs[_uiPendingFilePos];
+        return _uiCurrentFileIdx;
     }
 
 
@@ -284,5 +281,13 @@ public sealed partial class CandleChartControl
     internal IReadOnlyList<IGraphIndicator> Test_GetIndicators()
         => _indicators;
 #endif
+    public FileIndex.FileCursorStepPrevious FilesPrevious(int cursorIdx, int range)
+    => _testFileIndex!.FilesPrevious(cursorIdx, range);
+
+    public CandleIndex.CandleCursorStepPrevious CandlesPrevious(int cursorIdx, int range)
+        => _testCandleIndex!.CandlesPrevious(cursorIdx, range);
+
+    internal bool Test_AdvanceCandlesPrevious()
+        => AdvanceCandlesPrevious();
 
 }

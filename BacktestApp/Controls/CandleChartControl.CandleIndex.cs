@@ -12,6 +12,9 @@ public sealed partial class CandleChartControl
         private MmapCandleFile? _file;
         private long _count;
 
+        // =========================
+        // State NEXT
+        // =========================
         private CandleSlot[]? _window;
         private int _windowSize;
         private int _windowHead;
@@ -19,7 +22,16 @@ public sealed partial class CandleChartControl
         private int _currentIdx = -1;
         private bool _hasState;
 
-        // contrainte métier : candleRange <= fileRange
+        // =========================
+        // State PREVIOUS
+        // =========================
+        private CandleSlot[]? _windowPrevious;
+        private int _windowSizePrevious;
+        private int _windowHeadPrevious;
+        private int _rangePrevious = -1;
+        private int _currentIdxPrevious = -1;
+        private bool _hasStatePrevious;
+
         private int _maxAllowedRange = -1;
 
         private struct CandleSlot
@@ -64,6 +76,14 @@ public sealed partial class CandleChartControl
             List<CandleItem> Added,
             List<CandleItem> Removed);
 
+        public sealed record CandleCursorStepPrevious(
+            int CurrentIdx,
+            int PreviousCursorIdx,
+            int Range,
+            List<CandleItem> Window,
+            List<CandleItem> Added,
+            List<CandleItem> Removed);
+
         public long Count => _count;
         public int MaxAllowedRange => _maxAllowedRange;
 
@@ -82,11 +102,11 @@ public sealed partial class CandleChartControl
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("Fichier candle introuvable.", filePath);
 
-
             _file = new MmapCandleFile(filePath);
             _count = _file.Count;
 
             ResetCursor();
+            ResetCursorPrevious();
         }
 
         public void ResetCursor()
@@ -97,6 +117,16 @@ public sealed partial class CandleChartControl
             _range = -1;
             _currentIdx = -1;
             _hasState = false;
+        }
+
+        public void ResetCursorPrevious()
+        {
+            _windowPrevious = null;
+            _windowSizePrevious = 0;
+            _windowHeadPrevious = 0;
+            _rangePrevious = -1;
+            _currentIdxPrevious = -1;
+            _hasStatePrevious = false;
         }
 
         public CandleItem Read(long index)
@@ -144,18 +174,17 @@ public sealed partial class CandleChartControl
 
             int step = range + 1;
 
-            // appel après fin : no-op comme FilesNext
             if (_hasState &&
-             _window != null &&
-             _range == range &&
-             _currentIdx == cursorIdx &&
-             GetAtLogical(_windowSize - 1).Idx == -1)
+                _window != null &&
+                _range == range &&
+                _currentIdx == cursorIdx &&
+                GetAtLogical(_window!, _windowHead, _windowSize, _windowSize - 1).Idx == -1)
             {
                 return new CandleCursorStep(
                     _currentIdx,
                     -1,
                     _range,
-                    ToListLogical(),
+                    ToListLogical(_window!, _windowHead, _windowSize),
                     new List<CandleItem>(),
                     new List<CandleItem>());
             }
@@ -169,12 +198,57 @@ public sealed partial class CandleChartControl
                 cursorIdx == expectedNext;
 
             if (!canIncremental)
-                return BuildFullWindow(cursorIdx, range);
+                return BuildFullWindowNext(cursorIdx, range);
 
-            return AdvanceWindowIncremental(cursorIdx, range);
+            return AdvanceWindowIncrementalNext(cursorIdx, range);
         }
 
-        private CandleCursorStep BuildFullWindow(int cursorIdx, int range)
+        public CandleCursorStepPrevious CandlesPrevious(int cursorIdx, int range)
+        {
+            if (_file == null)
+                throw new InvalidOperationException("Fichier candle non chargé.");
+
+            if (range < 0)
+                throw new ArgumentOutOfRangeException(nameof(range), "range doit être >= 0.");
+
+            if (_count <= 0)
+                return new CandleCursorStepPrevious(-1, -1, range, new List<CandleItem>(), new List<CandleItem>(), new List<CandleItem>());
+
+            if (cursorIdx < 0 || cursorIdx >= _count)
+                return new CandleCursorStepPrevious(-1, -1, range, new List<CandleItem>(), new List<CandleItem>(), new List<CandleItem>());
+
+            int step = range + 1;
+
+            if (_hasStatePrevious &&
+                _windowPrevious != null &&
+                _rangePrevious == range &&
+                _currentIdxPrevious == cursorIdx &&
+                GetAtLogical(_windowPrevious, _windowHeadPrevious, _windowSizePrevious, 0).Idx == -1)
+            {
+                return new CandleCursorStepPrevious(
+                    _currentIdxPrevious,
+                    -1,
+                    _rangePrevious,
+                    ToListLogical(_windowPrevious, _windowHeadPrevious, _windowSizePrevious),
+                    new List<CandleItem>(),
+                    new List<CandleItem>());
+            }
+
+            int expectedPrevious = _currentIdxPrevious >= 0 ? _currentIdxPrevious - step : -1;
+
+            bool canIncremental =
+                _hasStatePrevious &&
+                _windowPrevious != null &&
+                _rangePrevious == range &&
+                cursorIdx == expectedPrevious;
+
+            if (!canIncremental)
+                return BuildFullWindowPrevious(cursorIdx, range);
+
+            return AdvanceWindowIncrementalPrevious(cursorIdx, range);
+        }
+
+        private CandleCursorStep BuildFullWindowNext(int cursorIdx, int range)
         {
             _range = range;
             _currentIdx = cursorIdx;
@@ -184,24 +258,47 @@ public sealed partial class CandleChartControl
 
             int p = 0;
             for (int idx = cursorIdx - range; idx <= cursorIdx + range; idx++)
-            {
                 _window[p++] = ReadSlotOrEmpty(idx);
-            }
 
             _hasState = true;
 
-            var window = ToListLogical();
+            var window = ToListLogical(_window, _windowHead, _windowSize);
             var added = FilterNonEmpty(window);
             var removed = new List<CandleItem>();
 
-            int nextCursorIdx = GetAtLogical(_windowSize - 1).Idx == -1
+            int nextCursorIdx = GetAtLogical(_window, _windowHead, _windowSize, _windowSize - 1).Idx == -1
                 ? -1
                 : cursorIdx + (range + 1);
 
             return new CandleCursorStep(cursorIdx, nextCursorIdx, range, window, added, removed);
         }
 
-        private CandleCursorStep AdvanceWindowIncremental(int cursorIdx, int range)
+        private CandleCursorStepPrevious BuildFullWindowPrevious(int cursorIdx, int range)
+        {
+            _rangePrevious = range;
+            _currentIdxPrevious = cursorIdx;
+            _windowSizePrevious = range * 2 + 1;
+            _windowHeadPrevious = 0;
+            _windowPrevious = new CandleSlot[_windowSizePrevious];
+
+            int p = 0;
+            for (int idx = cursorIdx - range; idx <= cursorIdx + range; idx++)
+                _windowPrevious[p++] = ReadSlotOrEmpty(idx);
+
+            _hasStatePrevious = true;
+
+            var window = ToListLogical(_windowPrevious, _windowHeadPrevious, _windowSizePrevious);
+            var added = FilterNonEmpty(window);
+            var removed = new List<CandleItem>();
+
+            int previousCursorIdx = GetAtLogical(_windowPrevious, _windowHeadPrevious, _windowSizePrevious, 0).Idx == -1
+                ? -1
+                : cursorIdx - (range + 1);
+
+            return new CandleCursorStepPrevious(cursorIdx, previousCursorIdx, range, window, added, removed);
+        }
+
+        private CandleCursorStep AdvanceWindowIncrementalNext(int cursorIdx, int range)
         {
             int step = range + 1;
             int size = _windowSize;
@@ -209,25 +306,22 @@ public sealed partial class CandleChartControl
             var removed = new List<CandleItem>(step);
             var added = new List<CandleItem>(step);
 
-            // 1) capturer les sortants logiques à gauche
             for (int i = 0; i < step && i < size; i++)
             {
-                var slot = GetAtLogical(i);
+                var slot = GetAtLogical(_window!, _windowHead, _windowSize, i);
                 if (slot.Idx != -1)
                     removed.Add(ToItem(slot));
             }
 
-            // 2) avancer la tête logique
             _windowHead = (_windowHead + step) % size;
 
-            // 3) écrire les nouveaux entrants dans les dernières positions logiques
             int rightStartIdx = _currentIdx + range + 1;
             for (int j = 0; j < step; j++)
             {
                 int newIdx = rightStartIdx + j;
                 var slot = ReadSlotOrEmpty(newIdx);
 
-                SetAtLogical(size - step + j, slot);
+                SetAtLogical(_window!, _windowHead, _windowSize, size - step + j, slot);
 
                 if (slot.Idx != -1)
                     added.Add(ToItem(slot));
@@ -235,13 +329,57 @@ public sealed partial class CandleChartControl
 
             _currentIdx = cursorIdx;
 
-            var window = ToListLogical();
+            var window = ToListLogical(_window!, _windowHead, _windowSize);
 
-            int nextCursorIdx = GetAtLogical(size - 1).Idx == -1
+            int nextCursorIdx = GetAtLogical(_window!, _windowHead, _windowSize, size - 1).Idx == -1
                 ? -1
                 : cursorIdx + step;
 
             return new CandleCursorStep(cursorIdx, nextCursorIdx, range, window, added, removed);
+        }
+
+        private CandleCursorStepPrevious AdvanceWindowIncrementalPrevious(int cursorIdx, int range)
+        {
+            int step = range + 1;
+            int size = _windowSizePrevious;
+
+            var removed = new List<CandleItem>(step);
+            var added = new List<CandleItem>(step);
+
+            for (int i = size - step; i < size; i++)
+            {
+                if (i < 0) continue;
+
+                var slot = GetAtLogical(_windowPrevious!, _windowHeadPrevious, _windowSizePrevious, i);
+                if (slot.Idx != -1)
+                    removed.Add(ToItem(slot));
+            }
+
+            _windowHeadPrevious = (_windowHeadPrevious - step) % size;
+            if (_windowHeadPrevious < 0)
+                _windowHeadPrevious += size;
+
+            int leftStartIdx = _currentIdxPrevious - range - step;
+            for (int j = 0; j < step; j++)
+            {
+                int newIdx = leftStartIdx + j;
+                var slot = ReadSlotOrEmpty(newIdx);
+
+                SetAtLogical(_windowPrevious!, _windowHeadPrevious, _windowSizePrevious, j, slot);
+
+                if (slot.Idx != -1)
+                    added.Add(ToItem(slot));
+            }
+
+            _currentIdxPrevious = cursorIdx;
+
+            var window = ToListLogical(_windowPrevious!, _windowHeadPrevious, _windowSizePrevious);
+
+            int previousCursorIdx = GetAtLogical(_windowPrevious!, _windowHeadPrevious, _windowSizePrevious, 0).Idx == -1
+                ? -1
+                : cursorIdx - step;
+
+            return new CandleCursorStepPrevious(cursorIdx, previousCursorIdx, range, window, added, removed);
         }
 
         public int[] BuildPreviewIndexes(int cursorIdx, int range)
@@ -259,9 +397,7 @@ public sealed partial class CandleChartControl
             int p = 0;
 
             for (int idx = cursorIdx - range; idx <= cursorIdx + range; idx++)
-            {
                 result[p++] = (idx < 0 || idx >= _count) ? -1 : idx;
-            }
 
             return result;
         }
@@ -269,31 +405,14 @@ public sealed partial class CandleChartControl
         private static CandleItem ToItem(CandleSlot s)
             => new CandleItem(s.Idx, s.Ts, s.O, s.H, s.L, s.C, s.V, s.Sym);
 
-        private List<CandleItem> ToListLogical()
-        {
-            var list = new List<CandleItem>(_windowSize);
-            for (int i = 0; i < _windowSize; i++)
-            {
-                list.Add(ToItem(GetAtLogical(i)));
-            }
-            return list;
-        }
+        private static int RingPhysicalIndex(int head, int size, int logicalIndex)
+            => (head + logicalIndex) % size;
 
-        private int RingPhysicalIndex(int logicalIndex)
-        {
-            return (_windowHead + logicalIndex) % _windowSize;
-        }
+        private static CandleSlot GetAtLogical(CandleSlot[] window, int head, int size, int logicalIndex)
+            => window[RingPhysicalIndex(head, size, logicalIndex)];
 
-        private CandleSlot GetAtLogical(int logicalIndex)
-        {
-            return _window![RingPhysicalIndex(logicalIndex)];
-        }
-
-        private void SetAtLogical(int logicalIndex, CandleSlot slot)
-        {
-            _window![RingPhysicalIndex(logicalIndex)] = slot;
-        }
-
+        private static void SetAtLogical(CandleSlot[] window, int head, int size, int logicalIndex, CandleSlot slot)
+            => window[RingPhysicalIndex(head, size, logicalIndex)] = slot;
 
         private static List<CandleItem> FilterNonEmpty(List<CandleItem> items)
         {
@@ -306,13 +425,23 @@ public sealed partial class CandleChartControl
             return list;
         }
 
+        private static List<CandleItem> ToListLogical(CandleSlot[] window, int head, int size)
+        {
+            var list = new List<CandleItem>(size);
+            for (int i = 0; i < size; i++)
+                list.Add(ToItem(GetAtLogical(window, head, size, i)));
+            return list;
+        }
+
         public void Dispose()
         {
             _file?.Dispose();
             _file = null;
             _count = 0;
             _maxAllowedRange = -1;
+
             ResetCursor();
+            ResetCursorPrevious();
         }
     }
 }

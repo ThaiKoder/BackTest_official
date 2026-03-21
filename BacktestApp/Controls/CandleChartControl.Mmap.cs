@@ -279,7 +279,8 @@ public sealed partial class CandleChartControl
 
     public void loadPrevious()
     {
-        DebugMessage.Write("previous clicked - non géré pour l'instant avec CandlesNext");
+        DebugMessage.Write("previous clicked");
+        AdvanceCandlesPrevious();
     }
 
     public void loadNext()
@@ -288,35 +289,10 @@ public sealed partial class CandleChartControl
         AdvanceCandlesNext();
     }
 
-    public void CursorPrev()
+    public void CursorPrevious()
     {
-        if (_file is null) return;
-        if (_windowLoaded <= 0) return;
-        if (_reloadInProgress) return;
-
-        // Au début du fichier ? => passer au contrat précédent
-        if (IsAtStartOfFile())
-        {
-            int prevIdx = _currentIdx - 1;
-            if (_starts != null && prevIdx >= 0)
-            {
-                LoadContractIndex(prevIdx, goToStart: false);
-            }
-            return;
-        }
-
-        int centerLocal = FindClosestIndexInWindow(_centerTimeSec);
-        if (centerLocal < 0) centerLocal = _windowLoaded / 2;
-
-        long centerGlobal = _windowStart + centerLocal;
-
-        long newCenterGlobal = centerGlobal - CursorStep;
-        long newStart = newCenterGlobal - (WindowCount / 2);
-
-        //ReloadWindow;(ClampStart(newStart));
-        InvalidateVisual();
+        loadPrevious();
     }
-
     public void CursorNext()
     {
 
