@@ -23,6 +23,88 @@ public sealed partial class CandleChartControl
 
     private int _uiCurrentFileIdx = -1;
 
+    private void ResetNextNavigationState()
+    {
+        _uiFileStep = null;
+        _uiCandleStep = null;
+        _uiPendingFileIdxs.Clear();
+        _uiPendingFilePos = -1;
+    }
+
+    private void ResetPreviousNavigationState()
+    {
+        _uiFileStepPrevious = null;
+        _uiCandleStepPrevious = null;
+        _uiPendingPreviousFileIdxs.Clear();
+        _uiPendingPreviousFilePos = -1;
+    }
+
+    private int GetCurrentCursorForNext()
+    {
+        if (_uiCandleStepPrevious is not null)
+            return _uiCandleStepPrevious.CurrentIdx;
+
+        if (_uiCandleStep is not null)
+            return _uiCandleStep.CurrentIdx;
+
+        return (int)Math.Max(0, _windowStart);
+    }
+
+    private int GetCurrentCursorForPrevious()
+    {
+        if (_uiCandleStep is not null)
+            return _uiCandleStep.CurrentIdx;
+
+        if (_uiCandleStepPrevious is not null)
+            return _uiCandleStepPrevious.CurrentIdx;
+
+        return (int)Math.Max(0, _windowStart);
+    }
+
+    private void RebuildNextNavigationStateFromCurrentPosition()
+    {
+        if (_uiFileIndex is null || _uiCandleIndex is null || _uiCurrentFileIdx < 0)
+            return;
+
+        _uiFileStep = _uiFileIndex.FilesNext(_uiCurrentFileIdx, UiFileRange);
+        _uiPendingFileIdxs.Clear();
+
+        foreach (var file in _uiFileStep.Window)
+        {
+            if (file.Idx == -1)
+                continue;
+
+            if (file.Idx < _uiCurrentFileIdx)
+                continue;
+
+            _uiPendingFileIdxs.Add(file.Idx);
+        }
+
+        _uiPendingFilePos = _uiPendingFileIdxs.IndexOf(_uiCurrentFileIdx);
+        if (_uiPendingFilePos < 0 && _uiPendingFileIdxs.Count > 0)
+            _uiPendingFilePos = 0;
+
+        int currentCursor = GetCurrentCursorForNext();
+        _uiCandleStep = _uiCandleIndex.CandlesNext(currentCursor, UiCandleRange);
+    }
+
+    private void RebuildPreviousNavigationStateFromCurrentPosition()
+    {
+        if (_uiFileIndex is null || _uiCandleIndex is null || _uiCurrentFileIdx < 0)
+            return;
+
+        _uiFileStepPrevious = _uiFileIndex.FilesPrevious(_uiCurrentFileIdx, UiFileRange);
+
+        if (_uiFileStepPrevious.CurrentIdx < 0)
+            return;
+
+        SetPendingPreviousFilesFromStep(_uiFileStepPrevious, useWindow: true, currentFileIdx: _uiCurrentFileIdx);
+
+        int currentCursor = GetCurrentCursorForPrevious();
+        _uiCandleStepPrevious = _uiCandleIndex.CandlesPrevious(currentCursor, UiCandleRange);
+    }
+
+
     private int RingPhysicalIndex(int logicalIndex)
     {
         return (_ringHead + logicalIndex) % WindowCount;
@@ -372,28 +454,35 @@ public sealed partial class CandleChartControl
 
     private bool AdvanceCandlesNext()
     {
-        if (_uiFileIndex == null || _uiFileStep == null)
+        if (_uiFileIndex == null)
             return false;
 
-        if (_uiCandleIndex == null || _uiCandleStep == null)
+        if (_uiCurrentFileIdx < 0)
+            return false;
+
+        if (_uiFileStep == null || _uiCandleStep == null)
         {
-            if (_uiPendingFileIdxs.Count == 0)
+            if (_uiCandleIndex == null)
                 return false;
 
-            LoadCandlesForCurrentFileStep();
-            return _uiCandleStep != null;
+            RebuildNextNavigationStateFromCurrentPosition();
+
+            if (_uiFileStep == null || _uiCandleStep == null)
+                return false;
         }
 
         if (_uiCandleStep.NextCursorIdx != -1)
         {
-            _uiCandleStep = _uiCandleIndex.CandlesNext(_uiCandleStep.NextCursorIdx, UiCandleRange);
+            _uiCandleStep = _uiCandleIndex!.CandlesNext(_uiCandleStep.NextCursorIdx, UiCandleRange);
             ApplyCandleStepToWindow(_uiCandleStep, resetView: false);
+            ResetPreviousNavigationState();
             return true;
         }
 
         if (MoveToNextPendingFileInCurrentStep())
         {
             LoadCandlesForCurrentFileStep();
+            ResetPreviousNavigationState();
             return _uiCandleStep != null && _windowLoaded > 0;
         }
 
@@ -411,6 +500,7 @@ public sealed partial class CandleChartControl
             return false;
 
         LoadCandlesForCurrentFileStep();
+        ResetPreviousNavigationState();
         return _uiCandleStep != null && _windowLoaded > 0;
     }
 
@@ -422,33 +512,29 @@ public sealed partial class CandleChartControl
         if (_uiCurrentFileIdx < 0)
             return false;
 
-        // Lazy init du state previous à partir du fichier courant
-        if (_uiFileStepPrevious == null)
+        if (_uiFileStepPrevious == null || _uiCandleStepPrevious == null)
         {
-            _uiFileStepPrevious = _uiFileIndex.FilesPrevious(_uiCurrentFileIdx, UiFileRange);
-
-            if (_uiFileStepPrevious.CurrentIdx < 0)
+            if (_uiCandleIndex == null)
                 return false;
 
-            SetPendingPreviousFilesFromStep(_uiFileStepPrevious, useWindow: true, currentFileIdx: _uiCurrentFileIdx);
+            RebuildPreviousNavigationStateFromCurrentPosition();
 
-            if (_uiCandleIndex != null)
-            {
-                int currentCursor = (int)Math.Max(0, _windowStart);
-                _uiCandleStepPrevious = _uiCandleIndex.CandlesPrevious(currentCursor, UiCandleRange);
-            }
+            if (_uiFileStepPrevious == null || _uiCandleStepPrevious == null)
+                return false;
         }
 
-        if (_uiCandleIndex != null && _uiCandleStepPrevious != null && _uiCandleStepPrevious.PreviousCursorIdx != -1)
+        if (_uiCandleIndex != null && _uiCandleStepPrevious.PreviousCursorIdx != -1)
         {
             _uiCandleStepPrevious = _uiCandleIndex.CandlesPrevious(_uiCandleStepPrevious.PreviousCursorIdx, UiCandleRange);
             ApplyPreviousCandleStepToWindow(_uiCandleStepPrevious, resetView: false);
+            ResetNextNavigationState();
             return true;
         }
 
         if (MoveToPreviousPendingFileInCurrentStep())
         {
             LoadCandlesForCurrentPreviousFileStep();
+            ResetNextNavigationState();
             return _uiCandleStepPrevious != null && _windowLoaded > 0;
         }
 
@@ -465,6 +551,7 @@ public sealed partial class CandleChartControl
             return false;
 
         LoadCandlesForCurrentPreviousFileStep();
+        ResetNextNavigationState();
         return _uiCandleStepPrevious != null && _windowLoaded > 0;
     }
 
