@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Xunit;
 
@@ -5,90 +8,224 @@ namespace DatasetToolTest.BackTestApp.Controls.CandleChartControlMmap;
 
 public class CursorPrevious
 {
-
     [Fact]
-    public void CandlesPrevious_Should_Start_From_Last_File_And_Last_Candle()
+    public void Test_CandlesPrevious_1_file()
     {
+        // ==================================================
+        // ARRANGE
+        // ==================================================
         var chart = new global::BacktestApp.Controls.CandleChartControl();
 
-        chart.Test_LoadIndexFile(Path.Combine("data", "bin", "_index.bin"));
+        string filePath = Path.Combine(
+            "data",
+            "bin",
+            "glbx-mdp3-20100606-20100612.ohlcv-1m.bin");
 
-        long fileCount = chart.Test_IndexCount;
-        Assert.True(fileCount > 0);
+        var candleIndex = chart.Test_candleReader();
+        candleIndex.Load(filePath);
 
-        int lastFileIdx = (int)fileCount - 1;
-
-        chart.Test_CandlesLoadFromCurrentFileIndex(lastFileIdx);
-
-        long candleCount = chart.Test_CandleCount;
-        Assert.True(candleCount > 0);
-
-        int lastCandleIdx = (int)candleCount - 1;
-
-        var step = chart.CandlesPrevious(lastCandleIdx, 10);
-
-        Assert.Equal(lastCandleIdx, step.CurrentIdx);
-        Assert.NotEmpty(step.Window);
-
-        // la dernière candle réelle du fichier doit être présente dans la fenêtre
-        Assert.Contains(step.Window, c => c.Idx == lastCandleIdx);
-    }
-
-    // Test minimal pour que loadPrevious() recule correctement le step des candles
-    // et que les timestamps chargés changent en conséquence.
-    [Fact]
-    public void LoadPrevious_NewSequence_Should_Rewind_UiCandleStep_And_Change_LoadedCandles()
-    {
-        // Arrange
-        var chart = new global::BacktestApp.Controls.CandleChartControl();
-
-        chart.Test_InitializeFilesAndCandlesMode();
-
-        // On avance au moins une fois pour éviter d’être collé au tout début
-        Assert.True(
-            chart.Test_AdvanceCandlesNext(),
-            "Impossible d'avancer une première fois pour préparer le test previous.");
-
-        int beforeCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
-        var beforeTs = chart.Test_GetLoadedTimestamps();
-
-        Assert.True(beforeCurrentIdx >= 0, $"CurrentIdx initial invalide: {beforeCurrentIdx}");
-        Assert.NotNull(beforeTs);
-        Assert.NotEmpty(beforeTs);
-
-        // Act
-        chart.loadPrevious();   // même chemin que le bouton UI
-
-        int afterCurrentIdx = chart.Test_GetUiCandleCurrentIdx();
-        var afterTs = chart.Test_GetLoadedTimestamps();
-
-        // Assert
-        Assert.True(afterCurrentIdx >= 0, $"CurrentIdx après recul invalide: {afterCurrentIdx}");
-        Assert.NotNull(afterTs);
-        Assert.NotEmpty(afterTs);
-
-        Assert.NotEqual(
-            beforeCurrentIdx,
-            afterCurrentIdx);
-
-        Assert.False(
-            beforeTs.SequenceEqual(afterTs),
-            $"Les candles chargées doivent changer. " +
-            $"beforeCurrentIdx={beforeCurrentIdx}, afterCurrentIdx={afterCurrentIdx}, " +
-            $"beforeFirstTs={beforeTs[0]}, beforeLastTs={beforeTs[^1]}, " +
-            $"afterFirstTs={afterTs[0]}, afterLastTs={afterTs[^1]}");
+        long expectedTotalCandles = candleIndex.Count;
 
         Assert.True(
-            beforeTs[0] != afterTs[0] || beforeTs[^1] != afterTs[^1],
-            $"La fenêtre doit changer au minimum en début ou en fin. " +
-            $"beforeFirstTs={beforeTs[0]}, beforeLastTs={beforeTs[^1]}, " +
-            $"afterFirstTs={afterTs[0]}, afterLastTs={afterTs[^1]}");
+            expectedTotalCandles > 0,
+            $"Le fichier doit contenir au moins une candle: {filePath}");
 
-        // en previous, le curseur doit reculer
-        Assert.True(
-            afterCurrentIdx < beforeCurrentIdx || beforeTs[0] != afterTs[0],
-            $"Le step ne semble pas avoir reculé correctement. " +
-            $"beforeCurrent={beforeCurrentIdx}, afterCurrent={afterCurrentIdx}, " +
-            $"beforeFirstTs={beforeTs[0]}, afterFirstTs={afterTs[0]}");
+        int range = 10;
+        int stepSize = range + 1;
+
+        int startCursorIdx = (int)expectedTotalCandles - 1;
+
+        var initialStep = candleIndex.CandlesPrevious(startCursorIdx, range);
+
+        Assert.Equal(startCursorIdx, initialStep.CurrentIdx);
+        Assert.NotNull(initialStep.Window);
+        Assert.NotEmpty(initialStep.Window);
+
+        // Fenêtre logique = toujours triée du plus ancien au plus récent
+        static void AssertStrictlyIncreasing(IReadOnlyList<long> ts, string prefix)
+        {
+            for (int i = 1; i < ts.Count; i++)
+            {
+                Assert.True(
+                    ts[i] > ts[i - 1],
+                    $"{prefix} timestamps non strictement croissants à i={i}. prev={ts[i - 1]}, cur={ts[i]}");
+            }
+        }
+
+        var initialWindowTs = initialStep.Window
+            .Where(c => c.Idx != -1)
+            .Select(c => c.Ts)
+            .ToArray();
+
+        Assert.NotEmpty(initialWindowTs);
+        AssertStrictlyIncreasing(initialWindowTs, "[INITIAL WINDOW]");
+
+        // La dernière candle réelle doit être visible au départ
+        Assert.Contains(initialStep.Window, c => c.Idx == startCursorIdx);
+
+        // Toutes les candles de la fenêtre initiale sont "vues"
+        var seenTs = new HashSet<long>();
+        foreach (var ts in initialWindowTs)
+        {
+            Assert.True(
+                seenTs.Add(ts),
+                $"[INITIAL] doublon détecté dans la fenêtre initiale: {ts}");
+        }
+
+        long totalCandlesRead = initialWindowTs.Length;
+
+        // En parcours reverse, chaque nouveau timestamp ajouté doit être strictement plus petit
+        // que le plus petit déjà vu jusque-là.
+        long currentSmallestSeenTs = initialWindowTs[0];
+
+        int previousCursorIdx = initialStep.CurrentIdx;
+        var previousWindow = initialStep.Window
+            .Where(c => c.Idx != -1)
+            .Select(c => c.Ts)
+            .ToArray();
+
+        int iterations = 0;
+        var step = initialStep;
+
+        // ==================================================
+        // ACT
+        // ==================================================
+        while (step.PreviousCursorIdx != -1)
+        {
+            iterations++;
+
+            step = candleIndex.CandlesPrevious(step.PreviousCursorIdx, range);
+
+            Assert.True(step.CurrentIdx >= 0, $"CurrentIdx invalide à l'itération {iterations}");
+            Assert.NotNull(step.Window);
+            Assert.NotEmpty(step.Window);
+
+            var currentWindow = step.Window
+                .Where(c => c.Idx != -1)
+                .Select(c => c.Ts)
+                .ToArray();
+
+            var addedTs = step.Added
+                .Where(c => c.Idx != -1)
+                .Select(c => c.Ts)
+                .ToArray();
+
+            var removedTs = step.Removed
+                .Where(c => c.Idx != -1)
+                .Select(c => c.Ts)
+                .ToArray();
+
+            Assert.NotEmpty(currentWindow);
+            AssertStrictlyIncreasing(currentWindow, $"[STEP {iterations}]");
+
+            // ==================================================
+            // 1) Le curseur recule bien
+            // ==================================================
+            Assert.True(
+                step.CurrentIdx < previousCursorIdx,
+                $"Le curseur previous doit reculer. before={previousCursorIdx}, after={step.CurrentIdx}");
+
+            // ==================================================
+            // 2) Pas de doublons dans la fenêtre courante
+            // ==================================================
+            for (int i = 1; i < currentWindow.Length; i++)
+            {
+                Assert.True(
+                    currentWindow[i] != currentWindow[i - 1],
+                    $"Doublon local dans la fenêtre à i={i}. ts={currentWindow[i]}");
+            }
+
+            // ==================================================
+            // 3) Vérifie le shift RIGHT + prepend ONLY NEW
+            //    previous = on enlève à droite, on ajoute à gauche
+            // ==================================================
+            int removedCount = removedTs.Length;
+            int addedCount = addedTs.Length;
+
+            Assert.True(removedCount >= 0);
+            Assert.True(addedCount >= 0);
+
+            int remain = previousWindow.Length - removedCount;
+            Assert.True(
+                remain >= 0,
+                $"remain invalide. previousWindow.Length={previousWindow.Length}, removedCount={removedCount}");
+
+            // Les removed doivent correspondre au suffixe qui sort à droite
+            for (int i = 0; i < removedCount; i++)
+            {
+                Assert.Equal(
+                    previousWindow[remain + i],
+                    removedTs[i]);
+            }
+
+            // La partie prependée à gauche doit correspondre exactement à Added
+            Assert.True(
+                addedCount <= currentWindow.Length,
+                $"addedCount invalide. addedCount={addedCount}, currentWindow.Length={currentWindow.Length}");
+
+            for (int i = 0; i < addedCount; i++)
+            {
+                Assert.Equal(
+                    addedTs[i],
+                    currentWindow[i]);
+            }
+
+            // La partie restante doit être conservée à droite
+            for (int i = 0; i < remain; i++)
+            {
+                Assert.Equal(
+                    previousWindow[i],
+                    currentWindow[addedCount + i]);
+            }
+
+            // ==================================================
+            // 4) Chaque nouvelle candle ajoutée est bien plus ancienne
+            //    que tout ce qu'on avait déjà vu
+            // ==================================================
+            foreach (var ts in addedTs)
+            {
+                Assert.True(
+                    ts < currentSmallestSeenTs,
+                    $"En parcours previous, chaque nouvelle candle doit être plus ancienne. " +
+                    $"addedTs={ts}, currentSmallestSeenTs={currentSmallestSeenTs}");
+
+                Assert.True(
+                    seenTs.Add(ts),
+                    $"Doublon global détecté pendant le parcours previous: {ts}");
+
+                currentSmallestSeenTs = ts;
+                totalCandlesRead++;
+            }
+
+            previousCursorIdx = step.CurrentIdx;
+            previousWindow = currentWindow;
+
+            Assert.True(
+                iterations <= expectedTotalCandles,
+                $"Boucle suspecte: trop d'itérations. iterations={iterations}, expectedTotalCandles={expectedTotalCandles}");
+        }
+
+        // ==================================================
+        // ASSERT FINAL
+        // ==================================================
+        Assert.True(iterations > 0, "Le test doit effectuer au moins un step previous.");
+
+        var finalWindow = step.Window
+            .Where(c => c.Idx != -1)
+            .Select(c => c.Ts)
+            .ToArray();
+
+        Assert.NotEmpty(finalWindow);
+        AssertStrictlyIncreasing(finalWindow, "[FINAL WINDOW]");
+
+        // On doit avoir parcouru exactement toutes les candles du fichier, une seule fois
+        Assert.Equal(expectedTotalCandles, totalCandlesRead);
+        Assert.Equal(expectedTotalCandles, seenTs.Count);
+
+        // Après le début du fichier, appel supplémentaire => no-op logique attendu
+        var noOp = candleIndex.CandlesPrevious(step.CurrentIdx, range);
+
+        Assert.Equal(step.CurrentIdx, noOp.CurrentIdx);
+        Assert.Equal(-1, noOp.PreviousCursorIdx);
     }
 }
