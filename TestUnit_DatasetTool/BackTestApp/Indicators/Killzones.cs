@@ -51,7 +51,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                     new { Name = "Asian", Start = new TimeSpan(21, 0, 0), End = new TimeSpan(8, 0, 0) },
                     new { Name = "London", Start = new TimeSpan(8, 0, 0), End = new TimeSpan(14, 30, 0) },
                     new { Name = "Between London - NY AM", Start = new TimeSpan(10, 0, 0), End = new TimeSpan(13, 30, 0) },
-                    new { Name = "NY AM", Start = new TimeSpan(14, 30, 0), End = new TimeSpan(19, 0, 0) },
+                    new { Name = "NY AM", Start = new TimeSpan(14, 30, 0), End = new TimeSpan(21, 0, 0) },
                     new { Name = "Silver Bullet", Start = new TimeSpan(21, 0, 0), End = new TimeSpan(22, 0, 0) }
                 };
 
@@ -71,7 +71,8 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
             {
                 //Confluence
-                ("C1", ctx => ctx.Refs["refAsian"].High < (ctx.Refs["refLondon"].High)),
+                ("C1", ctx => ctx.Refs["refAsian"].Low < (ctx.Refs["refLondon"].Low)),
+                ("C2", ctx => ctx.Refs["refAsian"].High < (ctx.Refs["refLondon"].High)),
                 //("C2", ctx => ctx.Target.Low <= (ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range * 4)),
                 // ("C3", ctx => ctx.Refs["refAsian"].Range < ctx.Refs["refLondon"].Range),
                 // ("C4", ctx => ctx.Refs["refAsian"].Low > ctx.Refs["refLondon-NY AM"].Low)
@@ -82,7 +83,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
                 //ctx => ctx.Target.Low <= (ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range * 0.5) //TP Low
 
                 //&&
-                ctx => ctx.Target.High >= (ctx.Refs["refLondon"].High)
+                ctx => (ctx.Refs["refLondon"].High) <= ctx.Target.High
 
 
 
