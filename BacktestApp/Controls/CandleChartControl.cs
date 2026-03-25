@@ -62,6 +62,13 @@ public sealed partial class CandleChartControl : Control
             new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
             new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)));
 
+        _indicators.Add(new SessionHighLowIndicator(
+            "Traverse la nuit",
+            new TimeSpan(22, 0, 0),
+            new TimeSpan(3, 0, 0),
+            new SolidColorBrush(Color.FromArgb(20, 0, 0, 255)),
+            new Pen(new SolidColorBrush(Color.FromArgb(255, 0, 0, 255)), 2)));
+
         //_indicators.Add(new SessionHighLowIndicator(
         //    "Silver Bullet",
         //    new TimeSpan(21, 0, 0),

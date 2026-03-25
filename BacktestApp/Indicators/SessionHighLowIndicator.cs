@@ -83,8 +83,8 @@ public sealed class SessionHighLowIndicator : IGraphIndicator
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("name vide", nameof(name));
 
-        if (endTime <= startTime)
-            throw new ArgumentException("endTime doit être > startTime.");
+        if (startTime == endTime)
+            throw new ArgumentException("startTime et endTime ne doivent pas être égaux.");
 
         _name = name;
         _startTime = startTime;
@@ -92,6 +92,7 @@ public sealed class SessionHighLowIndicator : IGraphIndicator
         _fill = fill ?? throw new ArgumentNullException(nameof(fill));
         _border = border ?? throw new ArgumentNullException(nameof(border));
     }
+
 
     // constructeur test / backtest
     public SessionHighLowIndicator(
@@ -242,6 +243,11 @@ public sealed class SessionHighLowIndicator : IGraphIndicator
 
     private bool IsInSession(TimeSpan t)
     {
-        return t >= _startTime && t < _endTime;
+        // session normale dans la même journée
+        if (_startTime < _endTime)
+            return t >= _startTime && t < _endTime;
+
+        // session qui traverse minuit
+        return t >= _startTime || t < _endTime;
     }
 }

@@ -48,10 +48,10 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
             var zoneConfigs = new[]
 {
-                    new { Name = "Asian", Start = new TimeSpan(1, 0, 0), End = new TimeSpan(5, 0, 0) },
-                    new { Name = "London", Start = new TimeSpan(7, 0, 0), End = new TimeSpan(10, 0, 0) },
+                    new { Name = "Asian", Start = new TimeSpan(21, 0, 0), End = new TimeSpan(8, 0, 0) },
+                    new { Name = "London", Start = new TimeSpan(8, 0, 0), End = new TimeSpan(14, 30, 0) },
                     new { Name = "Between London - NY AM", Start = new TimeSpan(10, 0, 0), End = new TimeSpan(13, 30, 0) },
-                    new { Name = "NY AM", Start = new TimeSpan(13, 30, 0), End = new TimeSpan(16, 0, 0) },
+                    new { Name = "NY AM", Start = new TimeSpan(14, 30, 0), End = new TimeSpan(19, 0, 0) },
                     new { Name = "Silver Bullet", Start = new TimeSpan(21, 0, 0), End = new TimeSpan(22, 0, 0) }
                 };
 
@@ -70,14 +70,29 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             // ==================================================
             var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
             {
-                ("C1", ctx => ctx.Refs["refAsian"].Range < (ctx.Refs["refLondon"].Range/100*60)),
-                ("C2", ctx => ctx.Refs["refAsian"].Range > (ctx.Refs["refLondon"].Range/100*30)),
+                //Confluence
+                ("C1", ctx => ctx.Refs["refAsian"].High < (ctx.Refs["refLondon"].High)),
+                //("C2", ctx => ctx.Target.Low <= (ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range * 4)),
                 // ("C3", ctx => ctx.Refs["refAsian"].Range < ctx.Refs["refLondon"].Range),
                 // ("C4", ctx => ctx.Refs["refAsian"].Low > ctx.Refs["refLondon-NY AM"].Low)
             };
 
             Func<ConditionContext, bool> finalCondition =
-               ctx => ((ctx.Refs["refLondon"].Range * 1) < ctx.Target.Range);
+                //ctx => ctx.Target.High >= (ctx.Refs["refAsian"].Mid) //TP High
+                //ctx => ctx.Target.Low <= (ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range * 0.5) //TP Low
+
+                //&&
+                ctx => ctx.Target.High >= (ctx.Refs["refLondon"].High)
+
+
+
+               //ctx => ctx.Target.Low <= (ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range * 0.2) // SL Setup 
+               //ctx.Target.High >= (ctx.Refs["refLondon"].Mid) &&
+               //ctx.Target.High >= (ctx.Refs["refLondon"].Low)
+
+               ;
+
+
 
             // ==================================================
             // VALIDATION CONFIG
