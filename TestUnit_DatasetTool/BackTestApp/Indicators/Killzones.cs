@@ -35,7 +35,7 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             ZoneSnapshot Target);
 
         [Fact]
-        public void LoadNext_Should_Compare_Zones_With_Multiple_Dynamic_References_And_MultiReference_Conditions()
+        public void Lanto()
         {
             // ==================================================
             // CONFIG TEST
@@ -71,9 +71,9 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
             var entryConditions = new List<(string Name, Func<ConditionContext, bool> Test)>
             {
                 //Confluence
-                ("C1", ctx => ctx.Refs["refAsian"].Low < (ctx.Refs["refLondon"].Low)),
-                ("C2", ctx => ctx.Refs["refAsian"].High < (ctx.Refs["refLondon"].High)),
-                //("C2", ctx => ctx.Target.Low <= (ctx.Refs["refAsian"].Low - ctx.Refs["refAsian"].Range * 4)),
+                ("C1", ctx => (ctx.Refs["refAsian"].Low < (ctx.Refs["refLondon"].Low))),
+                //("C2", ctx => ctx.Refs["refAsian"].High < (ctx.Refs["refLondon"].High)),
+                //("C3", ctx =>  (ctx.Refs["refLondon"].Low) % 100 == 0),
                 // ("C3", ctx => ctx.Refs["refAsian"].Range < ctx.Refs["refLondon"].Range),
                 // ("C4", ctx => ctx.Refs["refAsian"].Low > ctx.Refs["refLondon-NY AM"].Low)
             };
@@ -84,6 +84,9 @@ namespace DatasetToolTest.BackTestApp.Indicators.Killzones
 
                 //&&
                 ctx => (ctx.Refs["refLondon"].High) <= ctx.Target.High
+                && (ctx.Target.Range) >= ctx.Refs["refLondon"].Range * 1.2;
+
+
 
 
 

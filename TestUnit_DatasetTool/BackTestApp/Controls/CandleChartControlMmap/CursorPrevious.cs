@@ -179,22 +179,38 @@ public class CursorPrevious
             }
 
             // ==================================================
-            // 4) Chaque nouvelle candle ajoutée est bien plus ancienne
-            //    que tout ce qu'on avait déjà vu
+            // 4) Chaque nouvelle candle ajoutée appartient bien
+            //    à une zone plus ancienne que tout ce qu'on avait déjà vu
             // ==================================================
+            long previousSmallestSeenTs = currentSmallestSeenTs;
+
+            // Added est en ordre chronologique croissant dans l'implémentation actuelle
+            for (int i = 1; i < addedTs.Length; i++)
+            {
+                Assert.True(
+                    addedTs[i] > addedTs[i - 1],
+                    $"Added doit rester strictement croissant en previous à l'intérieur du batch. " +
+                    $"i={i}, prev={addedTs[i - 1]}, cur={addedTs[i]}");
+            }
+
             foreach (var ts in addedTs)
             {
                 Assert.True(
-                    ts < currentSmallestSeenTs,
-                    $"En parcours previous, chaque nouvelle candle doit être plus ancienne. " +
-                    $"addedTs={ts}, currentSmallestSeenTs={currentSmallestSeenTs}");
+                    ts < previousSmallestSeenTs,
+                    $"En parcours previous, chaque nouvelle candle doit être plus ancienne que " +
+                    $"le plus petit timestamp vu avant ce batch. " +
+                    $"addedTs={ts}, previousSmallestSeenTs={previousSmallestSeenTs}");
 
                 Assert.True(
                     seenTs.Add(ts),
                     $"Doublon global détecté pendant le parcours previous: {ts}");
 
-                currentSmallestSeenTs = ts;
                 totalCandlesRead++;
+            }
+
+            if (addedTs.Length > 0)
+            {
+                currentSmallestSeenTs = addedTs[0];
             }
 
             previousCursorIdx = step.CurrentIdx;
